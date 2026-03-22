@@ -1,11 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 const ALL_PAGES = [
-  { key: 'dashboard', label: 'Дашборд' },
   { key: 'clients', label: 'Клиенты' },
   { key: 'dialogs', label: 'Диалоги' },
-  { key: 'production', label: 'Производство' },
-  { key: 'fines', label: 'Штрафы' },
   { key: 'reports', label: 'Отчёты' },
   { key: 'documents', label: 'Документы' },
   { key: 'instructions', label: 'Инструкции' },
@@ -16,8 +13,8 @@ const ALL_PAGES = [
 
 const ROLE_PAGES = {
   SUPERADMIN: ALL_PAGES.map((p) => p.key),
-  ADMIN: ['dashboard', 'clients', 'dialogs', 'production', 'fines', 'reports', 'documents', 'instructions', 'ai', 'users'],
-  EMPLOYEE: ['dashboard', 'clients', 'dialogs', 'production', 'fines', 'documents', 'instructions', 'ai']
+  ADMIN: ['clients', 'dialogs', 'reports', 'documents', 'instructions', 'ai', 'users', 'settings'],
+  EMPLOYEE: ['clients', 'dialogs', 'documents', 'instructions', 'ai']
 }
 
 const AUTH_STORAGE_KEY = 'crm_auth'
@@ -134,7 +131,7 @@ function toInputDateTime(isoValue) {
 export default function App() {
   const [auth, setAuth] = useState(null)
   const [authChecked, setAuthChecked] = useState(false)
-  const [activePage, setActivePage] = useState('dashboard')
+  const [activePage, setActivePage] = useState('clients')
   const [health, setHealth] = useState('loading')
   const [users, setUsers] = useState([])
   const [loadingUsers, setLoadingUsers] = useState(false)
@@ -185,6 +182,15 @@ export default function App() {
   const [chatInputText, setChatInputText] = useState('')
   const [sendingMessage, setSendingMessage] = useState(false)
   const [sendMessageError, setSendMessageError] = useState('')
+  const [aiAnalysis, setAiAnalysis] = useState('')
+  const [aiAnalysisLoading, setAiAnalysisLoading] = useState(false)
+  const [aiChatMessages, setAiChatMessages] = useState([])
+  const [aiChatInput, setAiChatInput] = useState('')
+  const [aiChatLoading, setAiChatLoading] = useState(false)
+  const aiChatEndRef = useRef(null)
+  const [prompts, setPrompts] = useState([])
+  const [promptsSaving, setPromptsSaving] = useState({})
+  const [promptsSaved, setPromptsSaved] = useState({})
 
   const [clientFilters, setClientFilters] = useState({
     q: '',
@@ -321,6 +327,62 @@ export default function App() {
     }
   }, [dialogMessages])
 
+  useEffect(() => {
+    if (!auth || activePage !== 'settings') return
+    authFetch('/api/ai/prompts')
+      .then((res) => res.json())
+      .then((data) => setPrompts(Array.isArray(data) ? data : []))
+      .catch(() => {})
+  }, [activePage, auth])
+
+  function savePrompt(key, content) {
+    setPromptsSaving((p) => ({ ...p, [key]: true }))
+    setPromptsSaved((p) => ({ ...p, [key]: false }))
+    authFetch(`/api/ai/prompts/${key}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content })
+    })
+      .then((res) => res.json())
+      .then((updated) => {
+        setPrompts((prev) => prev.map((p) => p.key === key ? { ...p, content: updated.content } : p))
+        setPromptsSaved((p) => ({ ...p, [key]: true }))
+        setTimeout(() => setPromptsSaved((p) => ({ ...p, [key]: false })), 2000)
+      })
+      .catch(() => {})
+      .finally(() => setPromptsSaving((p) => ({ ...p, [key]: false })))
+  }
+
+  useEffect(() => {
+    if (aiChatEndRef.current) {
+      aiChatEndRef.current.scrollIntoView({ behavior: 'smooth' })
+    }
+  }, [aiChatMessages])
+
+  function sendAiMessage() {
+    const text = aiChatInput.trim()
+    if (!text || aiChatLoading) return
+    const updated = [...aiChatMessages, { role: 'user', content: text }]
+    setAiChatMessages(updated)
+    setAiChatInput('')
+    setAiChatLoading(true)
+    authFetch('/api/ai/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updated)
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.reply) {
+          setAiChatMessages((prev) => [...prev, { role: 'assistant', content: data.reply }])
+        }
+      })
+      .catch(() => {
+        setAiChatMessages((prev) => [...prev, { role: 'assistant', content: '⚠️ Ошибка. Попробуй ещё раз.' }])
+      })
+      .finally(() => setAiChatLoading(false))
+  }
+
   function authFetch(url, options = {}) {
     if (!auth?.authHeader) {
       return Promise.reject(new Error('unauthorized'))
@@ -342,7 +404,7 @@ export default function App() {
   function doLogout() {
     localStorage.removeItem(AUTH_STORAGE_KEY)
     setAuth(null)
-    setActivePage('dashboard')
+    setActivePage('clients')
   }
 
   function submitLogin(event) {
@@ -595,6 +657,7 @@ export default function App() {
     setSelectedDialog(dialog)
     setChatInputText('')
     setSendMessageError('')
+    setAiAnalysis('')
     setLoadingDialogMessages(true)
     authFetch(`/api/clients/${dialog.clientId}/vk-messages`)
       .then((res) => res.json())
@@ -606,6 +669,12 @@ export default function App() {
         .then(() => setDialogs((prev) => prev.map((d) => d.clientId === dialog.clientId ? { ...d, unreadCount: 0 } : d)))
         .catch(() => {})
     }
+    setAiAnalysisLoading(true)
+    authFetch(`/api/clients/${dialog.clientId}/ai-analyze`, { method: 'POST' })
+      .then((res) => res.json())
+      .then((data) => setAiAnalysis(data.analysis || data.error || ''))
+      .catch(() => setAiAnalysis(''))
+      .finally(() => setAiAnalysisLoading(false))
   }
 
   function handleSendMessage() {
@@ -749,7 +818,7 @@ export default function App() {
         ))}
       </nav>
 
-      <main className={activePage === 'dialogs' ? 'page page-messenger' : 'page'}>
+      <main className={activePage === 'dialogs' || activePage === 'ai' ? 'page page-messenger' : 'page'}>
         {activePage === 'dialogs' ? (
           <div className="messenger">
             <div className="messenger-list">
@@ -799,6 +868,13 @@ export default function App() {
                       </div>
                     </div>
                   </div>
+                  {(aiAnalysisLoading || aiAnalysis) ? (
+                    <div className="ai-analysis">
+                      {aiAnalysisLoading
+                        ? <span className="ai-analysis-loading">🤖 Анализирую клиента...</span>
+                        : <span>{aiAnalysis}</span>}
+                    </div>
+                  ) : null}
                   <div className="messenger-chat-messages" ref={chatMessagesRef}>
                     {loadingDialogMessages ? (
                       <p className="hint-text">Загрузка...</p>
@@ -1307,6 +1383,95 @@ export default function App() {
                 </table>
               )}
             </div>
+          </section>
+        ) : activePage === 'ai' ? (
+          <div className="ai-assistant">
+            <div className="ai-assistant-messages">
+              {aiChatMessages.length === 0 ? (
+                <div className="ai-assistant-empty">
+                  <p>Привет! Я помощник менеджера по продажам.</p>
+                  <p>Могу помочь составить ответ клиенту, написать КП или проконсультировать по продукту.</p>
+                </div>
+              ) : (
+                aiChatMessages.map((msg, i) => (
+                  <div key={i} className={`ai-msg ai-msg-${msg.role}`}>
+                    <div className="ai-msg-bubble">{msg.content}</div>
+                  </div>
+                ))
+              )}
+              {aiChatLoading ? (
+                <div className="ai-msg ai-msg-assistant">
+                  <div className="ai-msg-bubble ai-msg-typing">●●●</div>
+                </div>
+              ) : null}
+              <div ref={aiChatEndRef} />
+            </div>
+            <div className="ai-assistant-input">
+              <textarea
+                placeholder="Напиши вопрос или задачу..."
+                value={aiChatInput}
+                rows={2}
+                onChange={(e) => setAiChatInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendAiMessage() } }}
+                disabled={aiChatLoading}
+              />
+              <div className="ai-assistant-actions">
+                <button type="button" onClick={sendAiMessage} disabled={!aiChatInput.trim() || aiChatLoading}>
+                  {aiChatLoading ? 'Думаю...' : 'Отправить'}
+                </button>
+                {aiChatMessages.length > 0 ? (
+                  <button type="button" className="ghost-btn" onClick={() => setAiChatMessages([])}>
+                    Очистить
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          </div>
+        ) : activePage === 'settings' ? (
+          <section>
+            <h2>Настройки</h2>
+            <h3 style={{ marginTop: '24px', marginBottom: '4px' }}>Промпты ИИ-ассистента</h3>
+            <p>Изменения вступают в силу немедленно — перезапуск не нужен.</p>
+            {prompts.length === 0 ? (
+              <p className="hint-text">Загрузка...</p>
+            ) : (
+              <div className="prompts-list">
+                {prompts.map((p) => {
+                  const label = p.key === 'analyze_system' ? 'Системный промпт (роль ИИ)'
+                    : p.key === 'analyze_user' ? 'Пользовательский промпт (задание)'
+                    : p.key
+                  const hint = p.key === 'analyze_user'
+                    ? 'Используй {history} — сюда подставится переписка с клиентом.'
+                    : null
+                  return (
+                    <div key={p.key} className="prompt-card card-form">
+                      <label className="prompt-label">{label}</label>
+                      {hint ? <p className="hint-text" style={{ margin: '4px 0 8px' }}>{hint}</p> : null}
+                      <textarea
+                        className="prompt-textarea"
+                        defaultValue={p.content}
+                        rows={6}
+                        id={`prompt-${p.key}`}
+                      />
+                      <div className="prompt-actions">
+                        <button
+                          type="button"
+                          disabled={promptsSaving[p.key]}
+                          onClick={() => {
+                            const el = document.getElementById(`prompt-${p.key}`)
+                            savePrompt(p.key, el.value)
+                          }}
+                        >
+                          {promptsSaving[p.key] ? 'Сохранение...' : 'Сохранить'}
+                        </button>
+                        {promptsSaved[p.key] ? <span className="save-ok">✓ Сохранено</span> : null}
+                        <span className="hint-text">Обновлён: {new Date(p.updatedAt).toLocaleString('ru-RU')}</span>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
           </section>
         ) : (
           <section>

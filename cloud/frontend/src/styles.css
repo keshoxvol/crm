@@ -518,6 +518,23 @@ td {
   margin-top: 2px;
 }
 
+.ai-analysis {
+  margin: 0 16px 0;
+  padding: 10px 14px;
+  background: color-mix(in srgb, var(--color-accent) 8%, var(--color-surface));
+  border-left: 3px solid var(--color-accent);
+  border-radius: 0 6px 6px 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--color-text-sub);
+  white-space: pre-wrap;
+}
+
+.ai-analysis-loading {
+  color: var(--color-text-dim);
+  font-style: italic;
+}
+
 .messenger-chat-messages {
   flex: 1;
   overflow-y: auto;
@@ -621,6 +638,159 @@ td {
 
 .chat-input-area input {
   flex: 1;
+}
+
+/* Prompts page */
+.prompts-list {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  max-width: 800px;
+  margin-top: 20px;
+}
+
+.prompt-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.prompt-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text);
+  margin-bottom: 8px;
+}
+
+.prompt-textarea {
+  width: 100%;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.6;
+  resize: vertical;
+  min-height: 120px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-bg);
+  color: var(--color-text);
+  box-sizing: border-box;
+}
+
+.prompt-textarea:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+.prompt-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.save-ok {
+  color: var(--color-accent);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* AI Assistant page */
+.ai-assistant {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  max-width: 800px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.ai-assistant-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px 20px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ai-assistant-empty {
+  margin: auto;
+  text-align: center;
+  color: var(--color-text-dim);
+  font-size: 15px;
+  line-height: 1.8;
+}
+
+.ai-msg {
+  display: flex;
+}
+
+.ai-msg-user {
+  justify-content: flex-end;
+}
+
+.ai-msg-assistant {
+  justify-content: flex-start;
+}
+
+.ai-msg-bubble {
+  max-width: 72%;
+  padding: 10px 14px;
+  border-radius: 14px;
+  font-size: 14px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.ai-msg-user .ai-msg-bubble {
+  background: var(--color-accent);
+  color: #fff;
+  border-bottom-right-radius: 4px;
+}
+
+.ai-msg-assistant .ai-msg-bubble {
+  background: var(--color-surface);
+  color: var(--color-text);
+  border-bottom-left-radius: 4px;
+}
+
+.ai-msg-typing {
+  color: var(--color-text-dim);
+  letter-spacing: 4px;
+  font-size: 18px;
+}
+
+.ai-assistant-input {
+  padding: 12px 20px 20px;
+  border-top: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ai-assistant-input textarea {
+  width: 100%;
+  resize: none;
+  font-family: inherit;
+  font-size: 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-bg);
+  color: var(--color-text);
+  box-sizing: border-box;
+}
+
+.ai-assistant-input textarea:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+.ai-assistant-actions {
+  display: flex;
+  gap: 8px;
 }
 
 /* VK Sync All */

@@ -29,6 +29,10 @@ services:
       SERVER_PORT: 8080
       VK_COMMUNITY_TOKEN: ${VK_COMMUNITY_TOKEN:-}
       VK_COMMUNITY_ID: ${VK_COMMUNITY_ID:-0}
+      VK_CALLBACK_SECRET: ${VK_CALLBACK_SECRET:-}
+      VK_CONFIRMATION_TOKEN: ${VK_CONFIRMATION_TOKEN:-}
+      TIMEWEB_AI_TOKEN: ${TIMEWEB_AI_TOKEN:-}
+      TIMEWEB_AI_AGENT_ID: ${TIMEWEB_AI_AGENT_ID:-}
     depends_on:
       postgres:
         condition: service_healthy

@@ -13,3 +13,7 @@ databaseChangeLog:
       file: db/changelog/changes/006-create-vk-message.sql
   - include:
       file: db/changelog/changes/007-create-vk-dialog-state.sql
+  - include:
+      file: db/changelog/changes/008-create-ai-prompt.sql
+  - include:
+      file: db/changelog/changes/009-add-assistant-prompt.sql

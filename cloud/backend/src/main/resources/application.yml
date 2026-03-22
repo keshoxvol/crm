@@ -21,3 +21,8 @@ vk:
   community-id: ${VK_COMMUNITY_ID:0}
   callback-secret: ${VK_CALLBACK_SECRET:}
   confirmation-token: ${VK_CONFIRMATION_TOKEN:}
+
+timeweb:
+  ai:
+    token: ${TIMEWEB_AI_TOKEN:}
+    base-url: ${TIMEWEB_AI_AGENT_ID:}
