@@ -184,6 +184,7 @@ export default function App() {
   const [sendMessageError, setSendMessageError] = useState('')
   const [aiAnalysis, setAiAnalysis] = useState('')
   const [aiAnalysisLoading, setAiAnalysisLoading] = useState(false)
+  const [aiAnalysisExpanded, setAiAnalysisExpanded] = useState(false)
   const [aiChatMessages, setAiChatMessages] = useState([])
   const [aiChatInput, setAiChatInput] = useState('')
   const [aiChatLoading, setAiChatLoading] = useState(false)
@@ -658,6 +659,7 @@ export default function App() {
     setChatInputText('')
     setSendMessageError('')
     setAiAnalysis('')
+    setAiAnalysisExpanded(false)
     setLoadingDialogMessages(true)
     authFetch(`/api/clients/${dialog.clientId}/vk-messages`)
       .then((res) => res.json())
@@ -870,9 +872,20 @@ export default function App() {
                   </div>
                   {(aiAnalysisLoading || aiAnalysis) ? (
                     <div className="ai-analysis">
-                      {aiAnalysisLoading
-                        ? <span className="ai-analysis-loading">🤖 Анализирую клиента...</span>
-                        : <span>{aiAnalysis}</span>}
+                      {aiAnalysisLoading ? (
+                        <span className="ai-analysis-loading">🤖 Анализирую клиента...</span>
+                      ) : (
+                        <>
+                          <div className="ai-analysis-header" onClick={() => setAiAnalysisExpanded((v) => !v)}>
+                            <span className="ai-analysis-title">🤖 Анализ клиента</span>
+                            <span className="ai-analysis-toggle">{aiAnalysisExpanded ? '▲ Свернуть' : '▼ Развернуть'}</span>
+                          </div>
+                          {aiAnalysisExpanded
+                            ? <div className="ai-analysis-body">{aiAnalysis}</div>
+                            : <div className="ai-analysis-preview" onClick={() => setAiAnalysisExpanded(true)}>{aiAnalysis}</div>
+                          }
+                        </>
+                      )}
                     </div>
                   ) : null}
                   <div className="messenger-chat-messages" ref={chatMessagesRef}>

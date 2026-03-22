@@ -84,6 +84,43 @@ public class AiService {
         return resp.choices().get(0).message().content();
     }
 
+    @Transactional(readOnly = true)
+    public String suggestReply(List<VkMessageResponse> messages) {
+        if (!isConfigured()) {
+            throw new AiNotConfiguredException("AI не настроен (TIMEWEB_AI_TOKEN, TIMEWEB_AI_AGENT_ID)");
+        }
+
+        var history = new StringBuilder();
+        for (VkMessageResponse msg : messages) {
+            String who = "IN".equals(msg.direction()) ? "[Клиент]" : "[Менеджер]";
+            String time = msg.sentAt().format(FMT);
+            history.append(who).append(" ").append(time).append(": ")
+                    .append(msg.text() != null ? msg.text() : "(вложение)").append("\n");
+        }
+
+        String systemPrompt = promptRepository.findById("suggest_reply_system")
+                .map(AiPrompt::getContent)
+                .orElse("Ты помощник менеджера по продажам моторных лодок ЛОСЬ 400. Предложи короткий и вежливый ответ клиенту. Верни только текст ответа.");
+
+        var body = Map.of(
+                "messages", List.of(
+                        Map.of("role", "system", "content", systemPrompt),
+                        Map.of("role", "user", "content", history.toString())));
+
+        var resp = restClient.post()
+                .uri(baseUrl + "/chat/completions")
+                .header("Authorization", "Bearer " + apiToken)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(body)
+                .retrieve()
+                .body(CompletionResponse.class);
+
+        if (resp == null || resp.choices() == null || resp.choices().isEmpty()) {
+            throw new AiNotConfiguredException("Пустой ответ от AI");
+        }
+        return resp.choices().get(0).message().content();
+    }
+
     public record ChatMessage(String role, String content) {}
 
     @Transactional(readOnly = true)

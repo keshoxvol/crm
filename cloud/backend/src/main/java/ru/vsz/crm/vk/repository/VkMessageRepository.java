@@ -18,4 +18,11 @@ public interface VkMessageRepository extends JpaRepository<VkMessage, Long> {
 
     @Query("SELECT DISTINCT vm.clientId FROM VkMessage vm")
     List<Long> findAllDistinctClientIds();
+
+    @Query("""
+            SELECT vm.clientId FROM VkMessage vm
+            WHERE vm.direction = 'IN'
+              AND vm.sentAt = (SELECT MAX(vm2.sentAt) FROM VkMessage vm2 WHERE vm2.clientId = vm.clientId)
+            """)
+    List<Long> findClientIdsWithLastMessageIn();
 }
