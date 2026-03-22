@@ -1,0 +1,15 @@
+databaseChangeLog:
+  - include:
+      file: db/changelog/changes/001-init-app-user.sql
+  - include:
+      file: db/changelog/changes/002-create-client-table.sql
+  - include:
+      file: db/changelog/changes/003-create-client-change-log.sql
+  - include:
+      file: db/changelog/changes/004-alter-app-user-add-updated-at.sql
+  - include:
+      file: db/changelog/changes/005-alter-client-add-reminder-at.sql
+  - include:
+      file: db/changelog/changes/006-create-vk-message.sql
+  - include:
+      file: db/changelog/changes/007-create-vk-dialog-state.sql

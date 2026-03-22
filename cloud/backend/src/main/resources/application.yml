@@ -1,0 +1,23 @@
+spring:
+  application:
+    name: vsz-crm-backend
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:crm_cloud}
+    username: ${DB_USER:crm}
+    password: ${DB_PASSWORD:crm}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+  liquibase:
+    enabled: true
+    change-log: classpath:db/changelog/db.changelog-master.yaml
+
+server:
+  port: ${SERVER_PORT:18080}
+
+vk:
+  community-token: ${VK_COMMUNITY_TOKEN:}
+  community-id: ${VK_COMMUNITY_ID:0}
+  callback-secret: ${VK_CALLBACK_SECRET:}
+  confirmation-token: ${VK_CONFIRMATION_TOKEN:}

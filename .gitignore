@@ -1,0 +1,19 @@
+# Секреты
+.env
+
+# Gradle
+.gradle/
+cloud/backend/build/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# Node
+cloud/frontend/node_modules/
+cloud/frontend/dist/
+
+# OS
+.DS_Store
+Thumbs.db

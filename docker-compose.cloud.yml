@@ -1,0 +1,48 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: crm-cloud-postgres
+    environment:
+      POSTGRES_DB: crm_cloud
+      POSTGRES_USER: crm
+      POSTGRES_PASSWORD: crm
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U crm -d crm_cloud"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - crm_cloud_postgres_data:/var/lib/postgresql/data
+
+  backend:
+    build:
+      context: ./cloud/backend
+    container_name: crm-cloud-backend
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: crm_cloud
+      DB_USER: crm
+      DB_PASSWORD: crm
+      SERVER_PORT: 8080
+      VK_COMMUNITY_TOKEN: ${VK_COMMUNITY_TOKEN:-}
+      VK_COMMUNITY_ID: ${VK_COMMUNITY_ID:-0}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+
+  frontend:
+    build:
+      context: ./cloud/frontend
+    container_name: crm-cloud-frontend
+    depends_on:
+      - backend
+    ports:
+      - "3000:80"
+
+volumes:
+  crm_cloud_postgres_data:
