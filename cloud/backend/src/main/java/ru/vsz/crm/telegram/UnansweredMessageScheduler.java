@@ -1,5 +1,6 @@
 package ru.vsz.crm.telegram;
 
+import jakarta.annotation.PostConstruct;
 import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 import java.util.Map;
@@ -38,6 +39,18 @@ public class UnansweredMessageScheduler {
         this.vkService = vkService;
         this.aiService = aiService;
         this.telegramService = telegramService;
+    }
+
+    @PostConstruct
+    public void init() {
+        // При старте помечаем все существующие неотвеченные сообщения как уже обработанные,
+        // чтобы не спамить в Telegram после перезапуска бекенда
+        var clientIds = messageRepository.findClientIdsWithLastMessageIn();
+        for (Long clientId : clientIds) {
+            messageRepository.findFirstByClientIdOrderBySentAtDesc(clientId)
+                    .ifPresent(msg -> notifiedMsgIds.put(clientId, msg.getVkMsgId()));
+        }
+        log.info("Инициализировано {} неотвеченных диалогов (уведомления не отправляются)", clientIds.size());
     }
 
     @Scheduled(fixedDelay = 60_000)
