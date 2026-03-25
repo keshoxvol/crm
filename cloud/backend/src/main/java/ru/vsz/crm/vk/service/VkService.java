@@ -273,7 +273,10 @@ public class VkService {
         if (existing.isEmpty()) {
             existing = clientRepository.findFirstByVkProfile(String.valueOf(fromId));
         }
-        if (existing.isEmpty()) return; // неизвестный клиент — подхватится на следующей синхронизации
+        if (existing.isEmpty()) {
+            // Новый пользователь — создаём клиента на лету
+            existing = java.util.Optional.of(createClientFromVkId(fromId));
+        }
 
         Long clientId = existing.get().getId();
         long msgId = messageNode.has("id") ? messageNode.get("id").asLong() : 0;
@@ -373,6 +376,25 @@ public class VkService {
         vkMessageRepository.findFirstByClientIdOrderBySentAtDesc(clientId)
                 .ifPresent(msg -> state.setInReadId(msg.getVkMsgId()));
         vkDialogStateRepository.save(state);
+    }
+
+    private Client createClientFromVkId(long vkUserId) {
+        String name = String.valueOf(vkUserId);
+        if (communityToken != null && !communityToken.isBlank()) {
+            var infos = fetchUserInfos(List.of(vkUserId));
+            if (!infos.isEmpty()) {
+                name = infos.get(0).firstName() + " " + infos.get(0).lastName();
+            }
+        }
+        Client client = new Client();
+        client.setVkId(vkUserId);
+        client.setVkProfile(String.valueOf(vkUserId));
+        client.setFullName(name);
+        client.setSource(ClientSource.VK);
+        client.setStatus(ClientStatus.NEW);
+        client.setModelInterest(ClientModelInterest.UNDEFINED);
+        client.setTemperature(ClientTemperature.COLD);
+        return clientRepository.save(client);
     }
 
     // ── Bot logic ─────────────────────────────────────────────────────────────
