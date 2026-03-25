@@ -25,3 +25,5 @@ databaseChangeLog:
       file: db/changelog/changes/012-add-vk-id-to-client.sql
   - include:
       file: db/changelog/changes/013-add-bot-state-to-vk-dialog-state.sql
+  - include:
+      file: db/changelog/changes/014-remove-unused-prompts.sql
