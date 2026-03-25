@@ -15,7 +15,8 @@ const ALL_PAGES = [
 const ROLE_PAGES = {
   SUPERADMIN: ALL_PAGES.map((p) => p.key),
   ADMIN: ['clients', 'orders', 'dialogs', 'reports', 'documents', 'instructions', 'ai', 'users', 'settings'],
-  EMPLOYEE: ['clients', 'orders', 'dialogs', 'documents', 'instructions', 'ai']
+  EMPLOYEE: ['clients', 'orders', 'dialogs', 'documents', 'instructions', 'ai'],
+  OPERATOR: ['instructions']
 }
 
 const AUTH_STORAGE_KEY = 'crm_auth'
@@ -31,7 +32,8 @@ const CLIENT_MODEL_OPTIONS = ['LOS_400', 'LOS_400_GX', 'UNDEFINED']
 const ROLE_LABELS = {
   SUPERADMIN: 'Суперадмин',
   ADMIN: 'Администратор',
-  EMPLOYEE: 'Сотрудник'
+  EMPLOYEE: 'Сотрудник',
+  OPERATOR: 'Оператор'
 }
 
 const CLIENT_SOURCE_LABELS = {
@@ -240,6 +242,15 @@ export default function App() {
   const [promptsSaving, setPromptsSaving] = useState({})
   const [promptsSaved, setPromptsSaved] = useState({})
 
+  const [instructions, setInstructions] = useState([])
+  const [loadingInstructions, setLoadingInstructions] = useState(false)
+  const [selectedInstruction, setSelectedInstruction] = useState(null)
+  const [instructionEditMode, setInstructionEditMode] = useState(false)
+  const [instructionForm, setInstructionForm] = useState({ number: '', title: '', steps: [] })
+  const [instructionFormError, setInstructionFormError] = useState('')
+  const [replacingFile, setReplacingFile] = useState(null) // { fileId, file, fileName }
+  const [fileUploadError, setFileUploadError] = useState('')
+
   const [clientFilters, setClientFilters] = useState({
     q: '',
     status: '',
@@ -400,6 +411,11 @@ export default function App() {
       .then((res) => res.json())
       .then((data) => setPrompts(Array.isArray(data) ? data : []))
       .catch(() => {})
+  }, [activePage, auth])
+
+  useEffect(() => {
+    if (!auth || activePage !== 'instructions') return
+    loadInstructions()
   }, [activePage, auth])
 
   function savePrompt(key, content) {
@@ -979,6 +995,182 @@ export default function App() {
     setCreatePasswordRepeat(password)
     setShowCreatePassword(true)
     setShowCreatePasswordRepeat(true)
+  }
+
+  function loadInstructions() {
+    setLoadingInstructions(true)
+    authFetch('/api/instructions')
+      .then((res) => res.json())
+      .then((data) => setInstructions(Array.isArray(data) ? data : []))
+      .catch(() => {})
+      .finally(() => setLoadingInstructions(false))
+  }
+
+  function openInstruction(id) {
+    authFetch(`/api/instructions/${id}`)
+      .then((res) => res.json())
+      .then((data) => {
+        setSelectedInstruction(data)
+        setInstructionEditMode(false)
+      })
+      .catch(() => {})
+  }
+
+  function startCreateInstruction() {
+    setSelectedInstruction(null)
+    setInstructionForm({ number: '', title: '', steps: [] })
+    setInstructionFormError('')
+    setInstructionEditMode(true)
+  }
+
+  function startEditInstruction() {
+    setInstructionForm({
+      number: selectedInstruction.number,
+      title: selectedInstruction.title,
+      steps: selectedInstruction.steps.map((s) => ({
+        id: s.id,
+        stepNumber: s.stepNumber,
+        title: s.title || '',
+        comment: s.comment || ''
+      }))
+    })
+    setInstructionFormError('')
+    setInstructionEditMode(true)
+  }
+
+  const dragStepIdx = useRef(null)
+
+  function addStep() {
+    const nextNum = instructionForm.steps.length + 1
+    setInstructionForm((f) => ({
+      ...f,
+      steps: [...f.steps, { stepNumber: nextNum, title: '', comment: '' }]
+    }))
+  }
+
+  function moveStep(fromIdx, toIdx) {
+    setInstructionForm((f) => {
+      const steps = [...f.steps]
+      const [moved] = steps.splice(fromIdx, 1)
+      steps.splice(toIdx, 0, moved)
+      return { ...f, steps: steps.map((s, i) => ({ ...s, stepNumber: i + 1 })) }
+    })
+  }
+
+  function removeStep(idx) {
+    setInstructionForm((f) => ({
+      ...f,
+      steps: f.steps.filter((_, i) => i !== idx).map((s, i) => ({ ...s, stepNumber: i + 1 }))
+    }))
+  }
+
+  function saveInstructionForm() {
+    if (!instructionForm.number || !instructionForm.title) {
+      setInstructionFormError('Заполните номер и название')
+      return
+    }
+    const isNew = !selectedInstruction
+    const url = isNew ? '/api/instructions' : `/api/instructions/${selectedInstruction.id}`
+    const method = isNew ? 'POST' : 'PUT'
+    authFetch(url, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        number: Number(instructionForm.number),
+        title: instructionForm.title,
+        steps: instructionForm.steps.map((s, i) => ({
+          id: s.id || null,
+          stepNumber: i + 1,
+          title: s.title,
+          comment: s.comment
+        }))
+      })
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        setSelectedInstruction(data)
+        setInstructionEditMode(false)
+        loadInstructions()
+      })
+      .catch(() => setInstructionFormError('Ошибка сохранения'))
+  }
+
+  function deleteInstruction(id) {
+    if (!window.confirm('Удалить инструкцию?')) return
+    authFetch(`/api/instructions/${id}`, { method: 'DELETE' })
+      .then(() => {
+        setSelectedInstruction(null)
+        loadInstructions()
+      })
+      .catch(() => {})
+  }
+
+  function handleStepPaste(e, stepId) {
+    const items = e.clipboardData?.items
+    if (!items) return
+    for (const item of items) {
+      if (item.type.startsWith('image/')) {
+        e.preventDefault()
+        const file = item.getAsFile()
+        if (file) uploadStepFile(stepId, file, 'PHOTO')
+        break
+      }
+    }
+  }
+
+  function uploadStepFile(stepId, file, fileType) {
+    const formData = new FormData()
+    formData.append('file', file)
+    formData.append('type', fileType)
+    setFileUploadError('')
+    authFetch(`/api/instructions/steps/${stepId}/files`, {
+      method: 'POST',
+      body: formData
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error()
+        return res.json()
+      })
+      .then(() => openInstruction(selectedInstruction.id))
+      .catch(() => setFileUploadError('Ошибка загрузки файла'))
+  }
+
+  function replaceStepFile(fileId, file, bumpVersion) {
+    const formData = new FormData()
+    formData.append('file', file)
+    setFileUploadError('')
+    authFetch(`/api/instructions/files/${fileId}?bumpVersion=${bumpVersion}`, {
+      method: 'PUT',
+      body: formData
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error()
+        return res.json()
+      })
+      .then(() => {
+        setReplacingFile(null)
+        openInstruction(selectedInstruction.id)
+      })
+      .catch(() => setFileUploadError('Ошибка замены файла'))
+  }
+
+  function deleteStepFile(fileId) {
+    if (!window.confirm('Удалить файл?')) return
+    authFetch(`/api/instructions/files/${fileId}`, { method: 'DELETE' })
+      .then(() => openInstruction(selectedInstruction.id))
+      .catch(() => {})
+  }
+
+  function downloadFile(fileId, fileName) {
+    authFetch(`/api/instructions/files/${fileId}/download-url`)
+      .then((res) => res.json())
+      .then((data) => {
+        const a = document.createElement('a')
+        a.href = data.url
+        a.download = fileName
+        a.click()
+      })
+      .catch(() => {})
   }
 
   if (!authChecked) {
@@ -1731,6 +1923,7 @@ export default function App() {
                         <option value="SUPERADMIN">{labelOf('SUPERADMIN', ROLE_LABELS)}</option>
                         <option value="ADMIN">{labelOf('ADMIN', ROLE_LABELS)}</option>
                         <option value="EMPLOYEE">{labelOf('EMPLOYEE', ROLE_LABELS)}</option>
+                        <option value="OPERATOR">{labelOf('OPERATOR', ROLE_LABELS)}</option>
                       </select>
                     </label>
                   </div>
@@ -1808,6 +2001,7 @@ export default function App() {
                         <option value="SUPERADMIN">{labelOf('SUPERADMIN', ROLE_LABELS)}</option>
                         <option value="ADMIN">{labelOf('ADMIN', ROLE_LABELS)}</option>
                         <option value="EMPLOYEE">{labelOf('EMPLOYEE', ROLE_LABELS)}</option>
+                        <option value="OPERATOR">{labelOf('OPERATOR', ROLE_LABELS)}</option>
                       </select>
                     </label>
                   </div>
@@ -1919,6 +2113,188 @@ export default function App() {
               </div>
             </div>
           </div>
+        ) : activePage === 'instructions' ? (
+          <section>
+            <div className="table-head">
+              <h2>Инструкции</h2>
+              {!instructionEditMode && !selectedInstruction && (auth.role === 'ADMIN' || auth.role === 'SUPERADMIN') && (
+                <button type="button" className="ghost-btn" onClick={startCreateInstruction}>+ Создать</button>
+              )}
+              {selectedInstruction && !instructionEditMode && (
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button type="button" className="ghost-btn" onClick={() => setSelectedInstruction(null)}>← Назад</button>
+                  {(auth.role === 'ADMIN' || auth.role === 'SUPERADMIN') && (
+                    <>
+                      <button type="button" className="ghost-btn" onClick={startEditInstruction}>Редактировать</button>
+                      <button type="button" className="ghost-btn" style={{ color: 'var(--red)' }} onClick={() => deleteInstruction(selectedInstruction.id)}>Удалить</button>
+                    </>
+                  )}
+                </div>
+              )}
+              {instructionEditMode && (
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  {selectedInstruction && <button type="button" className="ghost-btn" onClick={() => setInstructionEditMode(false)}>Отмена</button>}
+                  {!selectedInstruction && <button type="button" className="ghost-btn" onClick={() => setInstructionEditMode(false)}>Отмена</button>}
+                </div>
+              )}
+            </div>
+
+            {/* Edit / Create form */}
+            {instructionEditMode ? (
+              <div className="card-form" style={{ maxWidth: '700px', marginTop: '16px' }}>
+                <div className="form-grid">
+                  <div className="field">
+                    <label className="field-label">Номер</label>
+                    <input type="number" value={instructionForm.number} onChange={(e) => setInstructionForm((f) => ({ ...f, number: e.target.value }))} />
+                  </div>
+                  <div className="field field-wide">
+                    <label className="field-label">Название</label>
+                    <input type="text" value={instructionForm.title} onChange={(e) => setInstructionForm((f) => ({ ...f, title: e.target.value }))} />
+                  </div>
+                </div>
+
+                <div className="form-section-title" style={{ marginTop: '16px' }}>Шаги</div>
+                {instructionForm.steps.map((step, idx) => (
+                  <div key={idx} className="card-form" style={{ marginBottom: '8px', background: 'var(--bg-secondary)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                      <span style={{ fontWeight: 600 }}>Шаг {idx + 1}</span>
+                      <button type="button" className="ghost-btn" style={{ color: 'var(--red)' }} onClick={() => removeStep(idx)}>Удалить</button>
+                    </div>
+                    <div className="form-grid">
+                      <div className="field field-wide">
+                        <label className="field-label">Название</label>
+                        <input type="text" value={step.title} onChange={(e) => { const steps = [...instructionForm.steps]; steps[idx] = { ...steps[idx], title: e.target.value }; setInstructionForm((f) => ({ ...f, steps })) }} />
+                      </div>
+                      <div className="field field-wide">
+                        <label className="field-label">Комментарий</label>
+                        <textarea rows={3} value={step.comment} onChange={(e) => { const steps = [...instructionForm.steps]; steps[idx] = { ...steps[idx], comment: e.target.value }; setInstructionForm((f) => ({ ...f, steps })) }} />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                <button type="button" className="ghost-btn" style={{ marginTop: '8px' }} onClick={addStep}>+ Добавить шаг</button>
+
+                {instructionFormError && <p className="error-text">{instructionFormError}</p>}
+                <div style={{ marginTop: '16px' }}>
+                  <button type="button" onClick={saveInstructionForm}>Сохранить</button>
+                </div>
+              </div>
+
+            ) : selectedInstruction ? (
+              /* Detail view */
+              <div style={{ marginTop: '16px' }}>
+                <h3 style={{ marginBottom: '16px' }}>#{selectedInstruction.number} — {selectedInstruction.title}</h3>
+                {fileUploadError && <p className="error-text">{fileUploadError}</p>}
+                {selectedInstruction.steps.length === 0 ? (
+                  <p className="hint-text">Шаги не добавлены</p>
+                ) : (
+                  selectedInstruction.steps.map((step) => (
+                    <div key={step.id} className="card-form" style={{ marginBottom: '16px', outline: 'none' }} tabIndex={0} onPaste={(e) => handleStepPaste(e, step.id)}>
+                      <div style={{ fontWeight: 600, marginBottom: step.comment ? '8px' : '12px' }}>Шаг {step.stepNumber}{step.title ? `: ${step.title}` : ''}</div>
+                      {step.comment && <p style={{ marginBottom: '12px', color: 'var(--text-secondary)' }}>{step.comment}</p>}
+
+                      {/* Photos */}
+                      {step.files.filter((f) => f.fileType === 'PHOTO').length > 0 && (
+                        <div style={{ marginBottom: '12px' }}>
+                          <div className="field-label" style={{ marginBottom: '6px' }}>Фото</div>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                            {step.files.filter((f) => f.fileType === 'PHOTO').map((f) => (
+                              <div key={f.id} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <span>{f.fileName}</span>
+                                <button type="button" className="ghost-btn" onClick={() => downloadFile(f.id, f.fileName)}>Просмотреть</button>
+                                {(auth.role === 'ADMIN' || auth.role === 'SUPERADMIN') && (
+                                  <button type="button" className="ghost-btn" style={{ color: 'var(--red)' }} onClick={() => deleteStepFile(f.id)}>Удалить</button>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* CNC files */}
+                      {step.files.filter((f) => f.fileType === 'CNC_FILE').length > 0 && (
+                        <div style={{ marginBottom: '12px' }}>
+                          <div className="field-label" style={{ marginBottom: '6px' }}>Файлы ЧПУ</div>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                            {step.files.filter((f) => f.fileType === 'CNC_FILE').map((f) => (
+                              <div key={f.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                                <span style={{ fontFamily: 'monospace', fontSize: '13px' }}>{f.fileName}</span>
+                                <span className="hint-text">v{f.version}</span>
+                                <button type="button" className="ghost-btn" onClick={() => downloadFile(f.id, f.fileName)}>↓ Скачать</button>
+                                {(auth.role === 'ADMIN' || auth.role === 'SUPERADMIN') && (
+                                  <>
+                                    {replacingFile && replacingFile.fileId === f.id ? (
+                                      <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                        <span className="hint-text">{replacingFile.fileName}</span>
+                                        <button type="button" className="ghost-btn" onClick={() => replaceStepFile(f.id, replacingFile.file, false)}>Сохранить</button>
+                                        <button type="button" className="ghost-btn" onClick={() => replaceStepFile(f.id, replacingFile.file, true)}>Сохранить v{f.version + 1}</button>
+                                        <button type="button" className="ghost-btn" onClick={() => setReplacingFile(null)}>Отмена</button>
+                                      </span>
+                                    ) : (
+                                      <>
+                                        <label className="ghost-btn" style={{ cursor: 'pointer' }}>
+                                          Заменить
+                                          <input type="file" style={{ display: 'none' }} onChange={(e) => { if (e.target.files[0]) setReplacingFile({ fileId: f.id, file: e.target.files[0], fileName: e.target.files[0].name }) }} />
+                                        </label>
+                                        <button type="button" className="ghost-btn" style={{ color: 'var(--red)' }} onClick={() => deleteStepFile(f.id)}>Удалить</button>
+                                      </>
+                                    )}
+                                  </>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Upload buttons for admin */}
+                      {(auth.role === 'ADMIN' || auth.role === 'SUPERADMIN') && (
+                        <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                          <label className="ghost-btn" style={{ cursor: 'pointer' }}>
+                            + Фото
+                            <input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => { if (e.target.files[0]) uploadStepFile(step.id, e.target.files[0], 'PHOTO') }} />
+                          </label>
+                          <label className="ghost-btn" style={{ cursor: 'pointer' }}>
+                            + Файл ЧПУ
+                            <input type="file" style={{ display: 'none' }} onChange={(e) => { if (e.target.files[0]) uploadStepFile(step.id, e.target.files[0], 'CNC_FILE') }} />
+                          </label>
+                        </div>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
+
+            ) : (
+              /* List view */
+              loadingInstructions ? (
+                <p className="hint-text">Загрузка...</p>
+              ) : instructions.length === 0 ? (
+                <p className="hint-text">Нет инструкций</p>
+              ) : (
+                <div className="table-wrap" style={{ marginTop: '16px' }}>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>№</th>
+                        <th>Название</th>
+                        <th>Обновлено</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {instructions.map((instr) => (
+                        <tr key={instr.id} className="table-row-clickable" onClick={() => openInstruction(instr.id)}>
+                          <td>{instr.number}</td>
+                          <td>{instr.title}</td>
+                          <td>{new Date(instr.updatedAt).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit' })}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )
+            )}
+          </section>
         ) : activePage === 'settings' ? (
           <section>
             <h2>Настройки</h2>
