@@ -55,9 +55,7 @@ public class UnansweredMessageScheduler {
 
     @Scheduled(fixedDelay = 60_000)
     public void checkUnanswered() {
-        if (!telegramService.isConfigured() || !aiService.isConfigured()) {
-            return;
-        }
+        if (!telegramService.isConfigured()) return;
 
         var clientIds = messageRepository.findClientIdsWithLastMessageIn();
         for (Long clientId : clientIds) {
@@ -65,26 +63,30 @@ public class UnansweredMessageScheduler {
             if (lastMsg.isEmpty()) continue;
 
             var msg = lastMsg.get();
-            // уже уведомляли по этому сообщению
             if (msg.getVkMsgId().equals(notifiedMsgIds.get(clientId))) continue;
 
             try {
-                var messages = vkService.getMessages(clientId);
-                var suggestion = aiService.suggestReply(messages);
-
                 var client = clientRepository.findById(clientId).orElse(null);
                 String clientName = client != null && client.getFullName() != null
-                        ? client.getFullName()
-                        : "Клиент #" + clientId;
-
+                        ? client.getFullName() : "Клиент #" + clientId;
                 String lastText = msg.getText() != null ? msg.getText() : "(вложение)";
                 String time = msg.getSentAt().format(FMT);
 
-                String text = String.format(
-                        "💬 Нет ответа — %s\n\nПоследнее сообщение (%s):\n%s\n\nПредлагаемый ответ:\n%s",
-                        clientName, time, lastText, suggestion);
+                StringBuilder text = new StringBuilder();
+                text.append(String.format("📊 Анализ диалога — %s\n\nПоследнее сообщение (%s):\n%s",
+                        clientName, time, lastText));
 
-                telegramService.sendMessage(text);
+                if (aiService.isConfigured()) {
+                    try {
+                        var messages = vkService.getMessages(clientId);
+                        var analysis = aiService.analyzeClient(messages);
+                        text.append("\n\n─────────────\n").append(analysis);
+                    } catch (Exception e) {
+                        log.warn("Не удалось получить AI-анализ для клиента {}: {}", clientId, e.getMessage());
+                    }
+                }
+
+                telegramService.sendMessage(text.toString());
                 notifiedMsgIds.put(clientId, msg.getVkMsgId());
             } catch (Exception e) {
                 log.error("Ошибка при обработке клиента {}: {}", clientId, e.getMessage());

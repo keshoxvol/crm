@@ -27,7 +27,6 @@ import ru.vsz.crm.client.domain.ClientStatus;
 import ru.vsz.crm.client.domain.ClientTemperature;
 import ru.vsz.crm.client.repository.ClientRepository;
 import ru.vsz.crm.client.service.ClientNotFoundException;
-import ru.vsz.crm.order.api.dto.PublicCreateOrderRequest;
 import ru.vsz.crm.order.domain.BoatModel;
 import ru.vsz.crm.order.service.OrderService;
 import ru.vsz.crm.telegram.TelegramService;
@@ -51,8 +50,15 @@ public class VkService {
 
     private static final String BOT_STATE_AWAITING_PHONE = "AWAITING_PHONE";
 
-    private static final String KEYBOARD_MAIN = """
-            {"one_time":true,"buttons":[[{"action":{"type":"text","payload":"{\\"cmd\\":\\"details\\"}","label":"📋 Узнать подробнее"},"color":"primary"}],[{"action":{"type":"text","payload":"{\\"cmd\\":\\"order\\"}","label":"🚤 Заказать лодку"},"color":"positive"}]]}""";
+    private static final java.util.regex.Pattern PHONE_PATTERN = java.util.regex.Pattern.compile(
+            "(?:\\+7|8|7)[\\s\\-]?\\(?\\d{3}\\)?[\\s\\-]?\\d{3}[\\s\\-]?\\d{2}[\\s\\-]?\\d{2}");
+
+    private static final String GREETING_TEXT =
+            "🚤 Две модели на выбор:\n" +
+            "• ЛОСЬ 400 — базовая, 140 000 ₽ • ЛОСЬ 400 Сохатый — с носовой рубкой, 180 000 ₽\n\n" +
+            "Корпус из ПНД-пластика — прослужит 20+ лет без покраски и ремонта. Длина 4 м, грузоподъёмность 300 кг.\n\n" +
+            "Изготовление занимает 2-3 недели — лучше записаться заранее.\n\n" +
+            "Оставьте номер — подберём комплектацию под ваши задачи: рыбалка, охота или отдых на воде 📞";
 
     private final String communityToken;
     private final long communityId;
@@ -413,51 +419,40 @@ public class VkService {
             return s;
         });
 
-        // 1. Кнопка «Начать» (ВК приветственное сообщение)
+        // 1. Кнопка «Начать» — отправляем приветствие без кнопок
         if (payload.contains("\"command\":\"start\"") || "Начать".equalsIgnoreCase(text.trim())) {
-            sendBotMessage(clientId, vkUserId, "Выберите, что вас интересует:", KEYBOARD_MAIN);
+            sendBotMessage(clientId, vkUserId, GREETING_TEXT, null);
             return;
         }
 
-        // 2. Нажата одна из кнопок меню
-        if (payload.contains("\"cmd\":\"details\"")) {
-            sendBotMessage(clientId, vkUserId,
-                    "🚤 Лодки ЛОСЬ 400 — производство ВСЗ:\n\n" +
-                    "• ЛОСЬ 400 (базовая) — 140 000 ₽\n" +
-                    "• ЛОСЬ 400 Сохатый (с рубкой) — 180 000 ₽\n\n" +
-                    "Корпус из ПНД-пластика, не гниёт и не ржавеет.\n" +
-                    "Длина 4 м, грузоподъёмность 300 кг.\n" +
-                    "Учтём все ваши пожелания при изготовлении.\n" +
-                    "Доставка по всей России.",
-                    KEYBOARD_MAIN);
-            return;
-        }
-
-        if (payload.contains("\"cmd\":\"order\"")) {
-            state.setBotState(BOT_STATE_AWAITING_PHONE);
+        // 2. Пользователь написал что-то — ищем номер телефона
+        var phoneMatcher = PHONE_PATTERN.matcher(text);
+        if (phoneMatcher.find()) {
+            String phone = phoneMatcher.group().replaceAll("[\\s\\-()]", "");
+            var client = clientRepository.findById(clientId).orElse(null);
+            if (client != null && (client.getPhone() == null || client.getPhone().isBlank())) {
+                client.setPhone(phone);
+                clientRepository.save(client);
+            }
+            orderService.create(new ru.vsz.crm.order.api.dto.CreateOrderRequest(
+                    clientId, client != null ? client.getFullName() : null,
+                    phone, BoatModel.UNDEFINED, ru.vsz.crm.order.domain.OrderStatus.NEW,
+                    ru.vsz.crm.order.domain.OrderSource.VK, null, null, "Заявка из ВК"));
+            state.setBotState(null);
             vkDialogStateRepository.save(state);
             sendBotMessage(clientId, vkUserId,
-                    "📞 Оставьте ваш номер телефона — менеджер перезвонит в ближайшее время.", null);
+                    "Спасибо! Ваша заявка принята 🙌 Менеджер свяжется с вами в ближайшее время.", null);
             return;
         }
 
-        // 3. Ждём номер телефона
-        if (BOT_STATE_AWAITING_PHONE.equals(state.getBotState())) {
-            String digits = text.replaceAll("[^0-9]", "");
-            if (digits.length() >= 7) {
-                var client = clientRepository.findById(clientId).orElse(null);
-                String name = client != null ? client.getFullName() : null;
-                orderService.createFromPublic(new PublicCreateOrderRequest(
-                        name, text.trim(), BoatModel.UNDEFINED, "Заявка из ВК"));
-                state.setBotState(null);
-                vkDialogStateRepository.save(state);
-                sendBotMessage(clientId, vkUserId,
-                        "Спасибо! Ваша заявка принята 🙌 Менеджер свяжется с вами в ближайшее время.", null);
-            } else {
-                sendBotMessage(clientId, vkUserId,
-                        "Пожалуйста, укажите номер телефона, например: 89001234567", null);
-            }
-        }
+        // 3. Вопрос от пользователя — уведомляем менеджера в Telegram
+        var client = clientRepository.findById(clientId).orElse(null);
+        String clientName = client != null ? client.getFullName() : "Неизвестный";
+        String vkLink = client != null && client.getVkProfile() != null
+                ? "vk.com/" + client.getVkProfile() : String.valueOf(vkUserId);
+        telegramService.sendMessage(String.format(
+                "💬 Новое сообщение в ВК от %s (%s):\n\n«%s»",
+                clientName, vkLink, text));
     }
 
     private void sendBotMessage(Long clientId, long vkUserId, String text, String keyboard) {

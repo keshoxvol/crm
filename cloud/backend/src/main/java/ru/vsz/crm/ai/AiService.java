@@ -14,15 +14,34 @@ import ru.vsz.crm.vk.api.dto.VkMessageResponse;
 @Service
 public class AiService {
 
-    private static final String DEFAULT_SYSTEM =
-            "Ты аналитик продаж моторных лодок ЛОСЬ 400. " +
-            "Анализируй переписку менеджера с клиентом кратко и по делу. " +
-            "Структурируй ответ: температура (горячий/тёплый/холодный), " +
-            "интерес клиента, рекомендация что предложить.";
-
-    private static final String DEFAULT_USER =
+    private static final String DEFAULT_ANALYZE =
+            "Ты опытный менеджер по продажам Вологодского судостроительного завода (ВСЗ).\n\n" +
+            "Завод производит моторные лодки из ПНД-пластика:\n" +
+            "• ЛОСЬ 400 — открытая, 140 000 ₽\n" +
+            "• ЛОСЬ 400 Сохатый — с носовой рубкой, 180 000 ₽\n\n" +
+            "Ключевые преимущества: ПНД-пластик не гниёт, не ржавеет, не требует покраски, служит 20+ лет. " +
+            "Длина 4 м, грузоподъёмность 300 кг. Учитываем пожелания при изготовлении. " +
+            "Доставка по всей России. Производство 2–3 недели.\n\n" +
+            "Типичные клиенты: рыбаки, охотники, любители отдыха на воде.\n" +
+            "Частые вопросы: какой мотор подойдёт (до 15 л.с.), можно ли доработать лодку, " +
+            "стоимость доставки до региона, сравнение с алюминием.\n\n" +
+            "Сигналы горячего клиента: спрашивает про оплату, аванс, реквизиты, конкретные сроки, " +
+            "доставку с указанием города, говорит «хочу заказать».\n" +
+            "Сигналы тёплого: уточняет характеристики, сравнивает модели, интересуется опциями, " +
+            "возвращается с новыми вопросами.\n" +
+            "Сигналы холодного: общие вопросы без конкретики, давно не пишет, не реагирует на ответы.\n\n" +
             "История переписки с клиентом:\n\n{history}\n\n" +
-            "Расскажи о клиенте — горячий он или холодный и что стоит предложить.";
+            "Проанализируй и ответь строго по структуре:\n\n" +
+            "🌡 ТЕМПЕРАТУРА: [ХОЛОДНЫЙ / ТЁПЛЫЙ / ГОРЯЧИЙ]\n" +
+            "Обоснование: (1–2 предложения)\n\n" +
+            "🎯 ИНТЕРЕС:\n" +
+            "(Что ищет клиент, какая модель, для каких целей)\n\n" +
+            "⚠️ ВОЗРАЖЕНИЯ:\n" +
+            "(Что останавливает или беспокоит, если есть — иначе «нет»)\n\n" +
+            "➡️ СЛЕДУЮЩИЙ ШАГ:\n" +
+            "(Конкретное действие для менеджера)\n\n" +
+            "💬 ЧЕРНОВИК ОТВЕТА:\n" +
+            "(Готовый текст ответа клиенту — живой, без канцелярщины, от первого лица)";
 
     private static final DateTimeFormatter FMT = DateTimeFormatter.ofPattern("dd.MM HH:mm");
 
@@ -59,16 +78,13 @@ public class AiService {
                     .append(msg.text() != null ? msg.text() : "(вложение)").append("\n");
         }
 
-        String systemPrompt = promptRepository.findById("analyze_system")
-                .map(AiPrompt::getContent).orElse(DEFAULT_SYSTEM);
-        String userPrompt = promptRepository.findById("analyze_user")
-                .map(AiPrompt::getContent).orElse(DEFAULT_USER)
+        String prompt = promptRepository.findById("analyze")
+                .map(AiPrompt::getContent).orElse(DEFAULT_ANALYZE)
                 .replace("{history}", history.toString());
 
         var body = Map.of(
                 "messages", List.of(
-                        Map.of("role", "system", "content", systemPrompt),
-                        Map.of("role", "user", "content", userPrompt)));
+                        Map.of("role", "user", "content", prompt)));
 
         var resp = restClient.post()
                 .uri(baseUrl + "/chat/completions")
@@ -84,44 +100,7 @@ public class AiService {
         return resp.choices().get(0).message().content();
     }
 
-    @Transactional(readOnly = true)
-    public String suggestReply(List<VkMessageResponse> messages) {
-        if (!isConfigured()) {
-            throw new AiNotConfiguredException("AI не настроен (TIMEWEB_AI_TOKEN, TIMEWEB_AI_AGENT_ID)");
-        }
-
-        var history = new StringBuilder();
-        for (VkMessageResponse msg : messages) {
-            String who = "IN".equals(msg.direction()) ? "[Клиент]" : "[Менеджер]";
-            String time = msg.sentAt().format(FMT);
-            history.append(who).append(" ").append(time).append(": ")
-                    .append(msg.text() != null ? msg.text() : "(вложение)").append("\n");
-        }
-
-        String systemPrompt = promptRepository.findById("suggest_reply_system")
-                .map(AiPrompt::getContent)
-                .orElse("Ты помощник менеджера по продажам моторных лодок ЛОСЬ 400. Предложи короткий и вежливый ответ клиенту. Верни только текст ответа.");
-
-        var body = Map.of(
-                "messages", List.of(
-                        Map.of("role", "system", "content", systemPrompt),
-                        Map.of("role", "user", "content", history.toString())));
-
-        var resp = restClient.post()
-                .uri(baseUrl + "/chat/completions")
-                .header("Authorization", "Bearer " + apiToken)
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(body)
-                .retrieve()
-                .body(CompletionResponse.class);
-
-        if (resp == null || resp.choices() == null || resp.choices().isEmpty()) {
-            throw new AiNotConfiguredException("Пустой ответ от AI");
-        }
-        return resp.choices().get(0).message().content();
-    }
-
-    public record ChatMessage(String role, String content) {}
+public record ChatMessage(String role, String content) {}
 
     @Transactional(readOnly = true)
     public String chat(List<ChatMessage> history) {
