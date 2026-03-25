@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 
 const ALL_PAGES = [
   { key: 'clients', label: 'Клиенты' },
+  { key: 'orders', label: 'Заявки' },
   { key: 'dialogs', label: 'Диалоги' },
   { key: 'reports', label: 'Отчёты' },
   { key: 'documents', label: 'Документы' },
@@ -13,8 +14,8 @@ const ALL_PAGES = [
 
 const ROLE_PAGES = {
   SUPERADMIN: ALL_PAGES.map((p) => p.key),
-  ADMIN: ['clients', 'dialogs', 'reports', 'documents', 'instructions', 'ai', 'users', 'settings'],
-  EMPLOYEE: ['clients', 'dialogs', 'documents', 'instructions', 'ai']
+  ADMIN: ['clients', 'orders', 'dialogs', 'reports', 'documents', 'instructions', 'ai', 'users', 'settings'],
+  EMPLOYEE: ['clients', 'orders', 'dialogs', 'documents', 'instructions', 'ai']
 }
 
 const AUTH_STORAGE_KEY = 'crm_auth'
@@ -61,16 +62,64 @@ const CLIENT_MODEL_LABELS = {
   UNDEFINED: 'Не определён'
 }
 
+const ORDER_STATUS_OPTIONS = ['NEW', 'IN_PROGRESS', 'DEPOSIT_PAID', 'COMPLETED', 'CANCELLED']
+const ORDER_SOURCE_OPTIONS = ['WEBSITE', 'VK', 'AVITO', 'PHONE', 'MANUAL']
+const ORDER_MODEL_OPTIONS = ['LOS_400', 'LOS_400_GX', 'UNDEFINED']
+
+const ORDER_STATUS_LABELS = {
+  NEW: 'Новая',
+  IN_PROGRESS: 'В работе',
+  DEPOSIT_PAID: 'Аванс внесён',
+  COMPLETED: 'Выполнена',
+  CANCELLED: 'Отменена'
+}
+
+const ORDER_SOURCE_LABELS = {
+  WEBSITE: 'Сайт',
+  VK: 'ВКонтакте',
+  AVITO: 'Авито',
+  PHONE: 'Телефон',
+  MANUAL: 'Вручную'
+}
+
+const ORDER_MODEL_LABELS = {
+  LOS_400: 'ЛОСЬ 400',
+  LOS_400_GX: 'ЛОСЬ 400 GX',
+  UNDEFINED: 'Не определена'
+}
+
+const EMPTY_CREATE_ORDER_FORM = {
+  clientId: '',
+  contactName: '',
+  contactPhone: '',
+  model: 'UNDEFINED',
+  status: 'NEW',
+  source: 'MANUAL',
+  desiredColor: '',
+  depositAmount: '',
+  notes: ''
+}
+
+const EMPTY_EDIT_ORDER_FORM = {
+  id: '',
+  clientId: '',
+  contactName: '',
+  contactPhone: '',
+  model: 'UNDEFINED',
+  status: 'NEW',
+  source: 'MANUAL',
+  desiredColor: '',
+  depositAmount: '',
+  notes: ''
+}
+
 const EMPTY_CREATE_CLIENT_FORM = {
   fullName: '',
   phone: '',
   vkProfile: '',
   source: 'WEBSITE',
-  status: 'NEW',
-  modelInterest: 'UNDEFINED',
   temperature: 'COLD',
-  comment: '',
-  reminderAt: ''
+  comment: ''
 }
 
 const EMPTY_EDIT_CLIENT_FORM = {
@@ -78,12 +127,10 @@ const EMPTY_EDIT_CLIENT_FORM = {
   fullName: '',
   phone: '',
   vkProfile: '',
+  vkId: '',
   source: 'WEBSITE',
-  status: 'NEW',
-  modelInterest: 'UNDEFINED',
   temperature: 'COLD',
-  comment: '',
-  reminderAt: ''
+  comment: ''
 }
 
 function getStoredAuth() {
@@ -197,9 +244,21 @@ export default function App() {
     q: '',
     status: '',
     source: '',
-    temperature: '',
-    modelInterest: ''
+    temperature: ''
   })
+
+  const [orders, setOrders] = useState([])
+  const [loadingOrders, setLoadingOrders] = useState(false)
+  const [orderFilters, setOrderFilters] = useState({ status: '', source: '', model: '' })
+  const [showCreateOrderForm, setShowCreateOrderForm] = useState(false)
+  const [createOrderForm, setCreateOrderForm] = useState({ ...EMPTY_CREATE_ORDER_FORM })
+  const [createOrderError, setCreateOrderError] = useState('')
+  const [editOrderForm, setEditOrderForm] = useState({ ...EMPTY_EDIT_ORDER_FORM })
+  const [editOrderError, setEditOrderError] = useState('')
+  const [orderClientSearch, setOrderClientSearch] = useState('')
+  const [orderClientResults, setOrderClientResults] = useState([])
+  const [clientOrders, setClientOrders] = useState([])
+  const [loadingClientOrders, setLoadingClientOrders] = useState(false)
 
   const [createClientForm, setCreateClientForm] = useState({ ...EMPTY_CREATE_CLIENT_FORM })
 
@@ -263,6 +322,13 @@ export default function App() {
 
     return () => window.clearInterval(intervalId)
   }, [activePage, auth, clientFilters])
+
+  useEffect(() => {
+    if (!auth || activePage !== 'orders') return
+    loadOrders()
+    const intervalId = window.setInterval(() => loadOrders(true), CLIENTS_POLL_INTERVAL_MS)
+    return () => window.clearInterval(intervalId)
+  }, [activePage, auth, orderFilters])
 
   useEffect(() => {
     if (!auth || activePage !== 'dialogs') return
@@ -454,7 +520,6 @@ export default function App() {
     if (clientFilters.status) params.set('status', clientFilters.status)
     if (clientFilters.source) params.set('source', clientFilters.source)
     if (clientFilters.temperature) params.set('temperature', clientFilters.temperature)
-    if (clientFilters.modelInterest) params.set('modelInterest', clientFilters.modelInterest)
     const query = params.toString()
     return query ? `?${query}` : ''
   }
@@ -575,11 +640,8 @@ export default function App() {
         fullName: editClientForm.fullName || undefined,
         vkProfile: editClientForm.vkProfile || undefined,
         source: editClientForm.source || undefined,
-        status: editClientForm.status || undefined,
-        modelInterest: editClientForm.modelInterest || undefined,
         temperature: editClientForm.temperature || undefined,
-        comment: editClientForm.comment || undefined,
-        reminderAt: toApiDateTime(editClientForm.reminderAt)
+        comment: editClientForm.comment || undefined
       })
     })
       .then((res) => {
@@ -611,17 +673,17 @@ export default function App() {
     setEditClientError('')
     setVkMessages([])
     setVkError('')
+    setClientOrders([])
+    loadClientOrders(client.id)
     setEditClientForm({
       id: String(client.id),
       fullName: client.fullName || '',
       phone: client.phone || '',
       vkProfile: client.vkProfile || '',
+      vkId: client.vkId ? String(client.vkId) : '',
       source: client.source || 'WEBSITE',
-      status: client.status || 'NEW',
-      modelInterest: client.modelInterest || 'UNDEFINED',
       temperature: client.temperature || 'COLD',
-      comment: client.comment || '',
-      reminderAt: toInputDateTime(client.reminderAt)
+      comment: client.comment || ''
     })
     if (client.vkProfile) {
       loadVkMessages(client.id)
@@ -720,6 +782,168 @@ export default function App() {
       .finally(() => setVkSyncing(false))
   }
 
+  function loadClientOrders(clientId) {
+    setLoadingClientOrders(true)
+    authFetch(`/api/orders?clientId=${clientId}`)
+      .then((res) => res.json())
+      .then((data) => setClientOrders(Array.isArray(data) ? data : []))
+      .catch(() => {})
+      .finally(() => setLoadingClientOrders(false))
+  }
+
+  function searchClientsForOrder(q) {
+    setOrderClientSearch(q)
+    if (!q.trim()) { setOrderClientResults([]); return }
+    authFetch(`/api/clients?q=${encodeURIComponent(q.trim())}`)
+      .then((res) => res.json())
+      .then((data) => setOrderClientResults(Array.isArray(data) ? data.slice(0, 6) : []))
+      .catch(() => {})
+  }
+
+  function pickClientForOrder(client, formSetter) {
+    formSetter((p) => ({
+      ...p,
+      clientId: String(client.id),
+      contactName: p.contactName || client.fullName || '',
+      contactPhone: p.contactPhone || client.phone || ''
+    }))
+    setOrderClientSearch(client.fullName ? `${client.fullName} (${client.phone})` : client.phone)
+    setOrderClientResults([])
+  }
+
+  function clearClientFromOrder(formSetter) {
+    formSetter((p) => ({ ...p, clientId: '' }))
+    setOrderClientSearch('')
+    setOrderClientResults([])
+  }
+
+  function loadOrders(silent = false) {
+    if (!silent) setLoadingOrders(true)
+    const params = new URLSearchParams()
+    if (orderFilters.status) params.set('status', orderFilters.status)
+    if (orderFilters.source) params.set('source', orderFilters.source)
+    if (orderFilters.model) params.set('model', orderFilters.model)
+    authFetch(`/api/orders?${params.toString()}`)
+      .then((res) => res.json())
+      .then((data) => setOrders(Array.isArray(data) ? data : []))
+      .catch(() => {})
+      .finally(() => setLoadingOrders(false))
+  }
+
+  function submitCreateOrder(e) {
+    e.preventDefault()
+    setCreateOrderError('')
+    const body = {
+      clientId: createOrderForm.clientId ? Number(createOrderForm.clientId) : null,
+      contactName: createOrderForm.contactName || null,
+      contactPhone: createOrderForm.contactPhone || null,
+      model: createOrderForm.model,
+      status: createOrderForm.status,
+      source: createOrderForm.source,
+      desiredColor: createOrderForm.desiredColor || null,
+      depositAmount: createOrderForm.depositAmount ? Number(createOrderForm.depositAmount) : null,
+      notes: createOrderForm.notes || null
+    }
+    authFetch('/api/orders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+      .then((res) => {
+        if (!res.ok) return res.json().then((e) => { throw new Error(e.message || 'Ошибка создания') })
+        return res.json()
+      })
+      .then(() => {
+        setShowCreateOrderForm(false)
+        setCreateOrderForm({ ...EMPTY_CREATE_ORDER_FORM })
+        loadOrders()
+      })
+      .catch((err) => setCreateOrderError(err.message || 'Ошибка создания заявки'))
+  }
+
+  function submitUpdateOrder(e) {
+    e.preventDefault()
+    setEditOrderError('')
+    const body = {
+      clientId: editOrderForm.clientId ? Number(editOrderForm.clientId) : null,
+      contactName: editOrderForm.contactName || null,
+      contactPhone: editOrderForm.contactPhone || null,
+      model: editOrderForm.model,
+      status: editOrderForm.status,
+      source: editOrderForm.source,
+      desiredColor: editOrderForm.desiredColor || null,
+      depositAmount: editOrderForm.depositAmount ? Number(editOrderForm.depositAmount) : null,
+      notes: editOrderForm.notes || null
+    }
+    authFetch(`/api/orders/${editOrderForm.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+      .then((res) => {
+        if (!res.ok) return res.json().then((e) => { throw new Error(e.message || 'Ошибка сохранения') })
+        return res.json()
+      })
+      .then(() => {
+        setEditOrderForm({ ...EMPTY_EDIT_ORDER_FORM })
+        loadOrders()
+      })
+      .catch((err) => setEditOrderError(err.message || 'Ошибка сохранения заявки'))
+  }
+
+  function navigateToOrder(orderId) {
+    authFetch(`/api/orders/${orderId}`)
+      .then((res) => res.json())
+      .then((order) => {
+        setActivePage('orders')
+        setShowCreateOrderForm(false)
+        setOrderClientSearch(order.clientName
+          ? `${order.clientName}${order.contactPhone ? ` (${order.contactPhone})` : ''}`
+          : '')
+        setOrderClientResults([])
+        setEditOrderForm({
+          id: order.id,
+          clientId: order.clientId ?? '',
+          contactName: order.contactName ?? '',
+          contactPhone: order.contactPhone ?? '',
+          model: order.model ?? 'UNDEFINED',
+          status: order.status ?? 'NEW',
+          source: order.source ?? 'MANUAL',
+          desiredColor: order.desiredColor ?? '',
+          depositAmount: order.depositAmount ?? '',
+          notes: order.notes ?? ''
+        })
+        setEditOrderError('')
+      })
+      .catch(() => {})
+  }
+
+  function selectOrderForEdit(order) {
+    setShowCreateOrderForm(false)
+    setOrderClientSearch(order.clientName
+      ? `${order.clientName}${order.contactPhone ? ` (${order.contactPhone})` : ''}`
+      : '')
+    setOrderClientResults([])
+    setEditOrderForm({
+      id: order.id,
+      clientId: order.clientId ?? '',
+      contactName: order.contactName ?? '',
+      contactPhone: order.contactPhone ?? '',
+      model: order.model ?? 'UNDEFINED',
+      status: order.status ?? 'NEW',
+      source: order.source ?? 'MANUAL',
+      desiredColor: order.desiredColor ?? '',
+      depositAmount: order.depositAmount ?? '',
+      notes: order.notes ?? ''
+    })
+    setEditOrderError('')
+  }
+
+  function toggleCreateOrderForm() {
+    setShowCreateOrderForm((current) => {
+      const next = !current
+      if (next) {
+        setEditOrderForm({ ...EMPTY_EDIT_ORDER_FORM })
+        setEditOrderError('')
+        setOrderClientSearch('')
+        setOrderClientResults([])
+      }
+      return next
+    })
+  }
+
   function toggleCreateClientForm() {
     setShowCreateClientForm((current) => {
       const next = !current
@@ -787,7 +1011,6 @@ export default function App() {
             <button type="submit">Войти</button>
           </form>
           {loginError ? <p className="error-text">{loginError}</p> : null}
-          <p className="hint-text">Тестовый вход: admin@vsz.local / admin123</p>
         </main>
       </div>
     )
@@ -986,13 +1209,6 @@ export default function App() {
                   onChange={(e) => setClientFilters((p) => ({ ...p, q: e.target.value }))}
                 />
                 <select
-                  value={clientFilters.status}
-                  onChange={(e) => setClientFilters((p) => ({ ...p, status: e.target.value }))}
-                >
-                  <option value="">Все статусы</option>
-                  {CLIENT_STATUS_OPTIONS.map((value) => <option key={value} value={value}>{labelOf(value, CLIENT_STATUS_LABELS)}</option>)}
-                </select>
-                <select
                   value={clientFilters.source}
                   onChange={(e) => setClientFilters((p) => ({ ...p, source: e.target.value }))}
                 >
@@ -1005,13 +1221,6 @@ export default function App() {
                 >
                   <option value="">Все температуры</option>
                   {CLIENT_TEMPERATURE_OPTIONS.map((value) => <option key={value} value={value}>{labelOf(value, CLIENT_TEMPERATURE_LABELS)}</option>)}
-                </select>
-                <select
-                  value={clientFilters.modelInterest}
-                  onChange={(e) => setClientFilters((p) => ({ ...p, modelInterest: e.target.value }))}
-                >
-                  <option value="">Все модели</option>
-                  {CLIENT_MODEL_OPTIONS.map((value) => <option key={value} value={value}>{labelOf(value, CLIENT_MODEL_LABELS)}</option>)}
                 </select>
               </div>
 
@@ -1032,25 +1241,9 @@ export default function App() {
                       <input value={createClientForm.vkProfile} onChange={(e) => setCreateClientForm((p) => ({ ...p, vkProfile: e.target.value }))} />
                     </label>
                     <label className="field">
-                      <span className="field-label">Напоминание</span>
-                      <input type="datetime-local" value={createClientForm.reminderAt} onChange={(e) => setCreateClientForm((p) => ({ ...p, reminderAt: e.target.value }))} />
-                    </label>
-                    <label className="field">
                       <span className="field-label">Источник</span>
                       <select value={createClientForm.source} onChange={(e) => setCreateClientForm((p) => ({ ...p, source: e.target.value }))}>
                         {CLIENT_SOURCE_OPTIONS.map((value) => <option key={value} value={value}>{labelOf(value, CLIENT_SOURCE_LABELS)}</option>)}
-                      </select>
-                    </label>
-                    <label className="field">
-                      <span className="field-label">Статус</span>
-                      <select value={createClientForm.status} onChange={(e) => setCreateClientForm((p) => ({ ...p, status: e.target.value }))}>
-                        {CLIENT_STATUS_OPTIONS.map((value) => <option key={value} value={value}>{labelOf(value, CLIENT_STATUS_LABELS)}</option>)}
-                      </select>
-                    </label>
-                    <label className="field">
-                      <span className="field-label">Модель</span>
-                      <select value={createClientForm.modelInterest} onChange={(e) => setCreateClientForm((p) => ({ ...p, modelInterest: e.target.value }))}>
-                        {CLIENT_MODEL_OPTIONS.map((value) => <option key={value} value={value}>{labelOf(value, CLIENT_MODEL_LABELS)}</option>)}
                       </select>
                     </label>
                     <label className="field">
@@ -1093,7 +1286,7 @@ export default function App() {
                       <input value={editClientForm.id} readOnly />
                     </label>
                     <label className="field">
-                      <span className="field-label">Телефон (неизменяемый)</span>
+                      <span className="field-label">Телефон</span>
                       <input value={editClientForm.phone} readOnly />
                     </label>
                     <label className="field">
@@ -1105,25 +1298,9 @@ export default function App() {
                       <input value={editClientForm.vkProfile} onChange={(e) => setEditClientForm((p) => ({ ...p, vkProfile: e.target.value }))} />
                     </label>
                     <label className="field">
-                      <span className="field-label">Напоминание</span>
-                      <input type="datetime-local" value={editClientForm.reminderAt} onChange={(e) => setEditClientForm((p) => ({ ...p, reminderAt: e.target.value }))} />
-                    </label>
-                    <label className="field">
                       <span className="field-label">Источник</span>
                       <select value={editClientForm.source} onChange={(e) => setEditClientForm((p) => ({ ...p, source: e.target.value }))}>
                         {CLIENT_SOURCE_OPTIONS.map((value) => <option key={value} value={value}>{labelOf(value, CLIENT_SOURCE_LABELS)}</option>)}
-                      </select>
-                    </label>
-                    <label className="field">
-                      <span className="field-label">Статус</span>
-                      <select value={editClientForm.status} onChange={(e) => setEditClientForm((p) => ({ ...p, status: e.target.value }))}>
-                        {CLIENT_STATUS_OPTIONS.map((value) => <option key={value} value={value}>{labelOf(value, CLIENT_STATUS_LABELS)}</option>)}
-                      </select>
-                    </label>
-                    <label className="field">
-                      <span className="field-label">Модель</span>
-                      <select value={editClientForm.modelInterest} onChange={(e) => setEditClientForm((p) => ({ ...p, modelInterest: e.target.value }))}>
-                        {CLIENT_MODEL_OPTIONS.map((value) => <option key={value} value={value}>{labelOf(value, CLIENT_MODEL_LABELS)}</option>)}
                       </select>
                     </label>
                     <label className="field">
@@ -1176,6 +1353,44 @@ export default function App() {
                     </div>
                   </div>
                 ) : null}
+
+                <div className="card-form inline-form">
+                  <h3>Заявки клиента</h3>
+                  {loadingClientOrders ? (
+                    <p className="hint-text">Загрузка...</p>
+                  ) : clientOrders.length === 0 ? (
+                    <p className="hint-text">Нет привязанных заявок</p>
+                  ) : (
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>№</th>
+                          <th>Дата</th>
+                          <th>Источник</th>
+                          <th>Модель</th>
+                          <th>Статус</th>
+                          <th>Аванс</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {clientOrders.map((order) => (
+                          <tr
+                            key={order.id}
+                            className="table-row-clickable"
+                            onClick={() => navigateToOrder(order.id)}
+                          >
+                            <td>{order.id}</td>
+                            <td>{new Date(order.createdAt).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })}</td>
+                            <td>{labelOf(order.source, ORDER_SOURCE_LABELS)}</td>
+                            <td>{labelOf(order.model, ORDER_MODEL_LABELS)}</td>
+                            <td>{labelOf(order.status, ORDER_STATUS_LABELS)}</td>
+                            <td>{order.depositAmount ? `${Number(order.depositAmount).toLocaleString('ru-RU')} ₽` : '-'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
                 </>
               ) : null}
 
@@ -1189,10 +1404,7 @@ export default function App() {
                       <th>ФИО</th>
                       <th>Телефон</th>
                       <th>Источник</th>
-                      <th>Статус</th>
                       <th>Температура</th>
-                      <th>Модель</th>
-                      <th>Напоминание</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1206,10 +1418,277 @@ export default function App() {
                         <td>{client.fullName || '-'}</td>
                         <td>{client.phone}</td>
                         <td>{labelOf(client.source, CLIENT_SOURCE_LABELS)}</td>
-                        <td>{labelOf(client.status, CLIENT_STATUS_LABELS)}</td>
                         <td>{labelOf(client.temperature, CLIENT_TEMPERATURE_LABELS)}</td>
-                        <td>{labelOf(client.modelInterest, CLIENT_MODEL_LABELS)}</td>
-                        <td>{client.reminderAt ? new Date(client.reminderAt).toLocaleString('ru-RU') : '-'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </section>
+        ) : activePage === 'orders' ? (
+          <section>
+            <h2>Заявки на лодку</h2>
+            <p>Заявки поступают с сайта автоматически или создаются вручную.</p>
+
+            <div className="table-wrap">
+              <div className="table-head">
+                <h3>Список заявок</h3>
+                <div className="table-actions">
+                  <button type="button" onClick={toggleCreateOrderForm}>
+                    {showCreateOrderForm ? 'Скрыть форму' : 'Создать заявку'}
+                  </button>
+                </div>
+              </div>
+
+              <div className="filters-grid">
+                <select
+                  value={orderFilters.status}
+                  onChange={(e) => setOrderFilters((p) => ({ ...p, status: e.target.value }))}
+                >
+                  <option value="">Все статусы</option>
+                  {ORDER_STATUS_OPTIONS.map((v) => <option key={v} value={v}>{labelOf(v, ORDER_STATUS_LABELS)}</option>)}
+                </select>
+                <select
+                  value={orderFilters.source}
+                  onChange={(e) => setOrderFilters((p) => ({ ...p, source: e.target.value }))}
+                >
+                  <option value="">Все источники</option>
+                  {ORDER_SOURCE_OPTIONS.map((v) => <option key={v} value={v}>{labelOf(v, ORDER_SOURCE_LABELS)}</option>)}
+                </select>
+                <select
+                  value={orderFilters.model}
+                  onChange={(e) => setOrderFilters((p) => ({ ...p, model: e.target.value }))}
+                >
+                  <option value="">Все модели</option>
+                  {ORDER_MODEL_OPTIONS.map((v) => <option key={v} value={v}>{labelOf(v, ORDER_MODEL_LABELS)}</option>)}
+                </select>
+              </div>
+
+              {showCreateOrderForm ? (
+                <form onSubmit={submitCreateOrder} className="card-form inline-form">
+                  <h3>Создать заявку</h3>
+                  <div className="form-grid">
+                    <div className="field field-wide">
+                      <span className="field-label">Клиент</span>
+                      <div className="client-search-wrap">
+                        <input
+                          placeholder="Поиск по имени или телефону..."
+                          value={orderClientSearch}
+                          onChange={(e) => searchClientsForOrder(e.target.value)}
+                          autoComplete="off"
+                        />
+                        {createOrderForm.clientId ? (
+                          <div className="client-search-linked">
+                            <span>Привязан клиент #{createOrderForm.clientId}</span>
+                            <button type="button" className="ghost-btn" onClick={() => clearClientFromOrder(setCreateOrderForm)}>Отвязать</button>
+                          </div>
+                        ) : null}
+                        {orderClientResults.length > 0 ? (
+                          <div className="client-search-results">
+                            {orderClientResults.map((c) => (
+                              <div key={c.id} className="client-search-item" onClick={() => pickClientForOrder(c, setCreateOrderForm)}>
+                                <span className="client-search-name">{c.fullName || '(без имени)'}</span>
+                                <span className="client-search-phone">{c.phone}</span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                    <label className="field">
+                      <span className="field-label">Имя контакта</span>
+                      <input
+                        value={createOrderForm.contactName}
+                        onChange={(e) => setCreateOrderForm((p) => ({ ...p, contactName: e.target.value }))}
+                      />
+                    </label>
+                    <label className="field">
+                      <span className="field-label">Телефон контакта</span>
+                      <input
+                        value={createOrderForm.contactPhone}
+                        onChange={(e) => setCreateOrderForm((p) => ({ ...p, contactPhone: e.target.value }))}
+                      />
+                    </label>
+                    <label className="field">
+                      <span className="field-label">Модель</span>
+                      <select value={createOrderForm.model} onChange={(e) => setCreateOrderForm((p) => ({ ...p, model: e.target.value }))}>
+                        {ORDER_MODEL_OPTIONS.map((v) => <option key={v} value={v}>{labelOf(v, ORDER_MODEL_LABELS)}</option>)}
+                      </select>
+                    </label>
+                    <label className="field">
+                      <span className="field-label">Источник</span>
+                      <select value={createOrderForm.source} onChange={(e) => setCreateOrderForm((p) => ({ ...p, source: e.target.value }))}>
+                        {ORDER_SOURCE_OPTIONS.map((v) => <option key={v} value={v}>{labelOf(v, ORDER_SOURCE_LABELS)}</option>)}
+                      </select>
+                    </label>
+                    <label className="field">
+                      <span className="field-label">Статус</span>
+                      <select value={createOrderForm.status} onChange={(e) => setCreateOrderForm((p) => ({ ...p, status: e.target.value }))}>
+                        {ORDER_STATUS_OPTIONS.map((v) => <option key={v} value={v}>{labelOf(v, ORDER_STATUS_LABELS)}</option>)}
+                      </select>
+                    </label>
+                    <label className="field">
+                      <span className="field-label">Желаемый цвет</span>
+                      <input
+                        value={createOrderForm.desiredColor}
+                        onChange={(e) => setCreateOrderForm((p) => ({ ...p, desiredColor: e.target.value }))}
+                      />
+                    </label>
+                    <label className="field">
+                      <span className="field-label">Аванс (руб.)</span>
+                      <input
+                        type="number"
+                        min="0"
+                        value={createOrderForm.depositAmount}
+                        onChange={(e) => setCreateOrderForm((p) => ({ ...p, depositAmount: e.target.value }))}
+                      />
+                    </label>
+                    <label className="field field-wide">
+                      <span className="field-label">Заметки</span>
+                      <textarea
+                        rows={3}
+                        value={createOrderForm.notes}
+                        onChange={(e) => setCreateOrderForm((p) => ({ ...p, notes: e.target.value }))}
+                      />
+                    </label>
+                  </div>
+                  <button type="submit">Создать</button>
+                  {createOrderError ? <p className="error-text">{createOrderError}</p> : null}
+                </form>
+              ) : null}
+
+              {editOrderForm.id ? (
+                <form onSubmit={submitUpdateOrder} className="card-form inline-form">
+                  <div className="inline-form-head">
+                    <h3>Редактировать заявку #{editOrderForm.id}</h3>
+                    <button type="button" className="ghost-btn" onClick={() => setEditOrderForm({ ...EMPTY_EDIT_ORDER_FORM })}>Закрыть</button>
+                  </div>
+                  <div className="form-grid">
+                    <div className="field field-wide">
+                      <span className="field-label">Клиент</span>
+                      <div className="client-search-wrap">
+                        <input
+                          placeholder="Поиск по имени или телефону..."
+                          value={orderClientSearch}
+                          onChange={(e) => searchClientsForOrder(e.target.value)}
+                          autoComplete="off"
+                        />
+                        {editOrderForm.clientId ? (
+                          <div className="client-search-linked">
+                            <span>Привязан клиент #{editOrderForm.clientId}</span>
+                            <button type="button" className="ghost-btn" onClick={() => clearClientFromOrder(setEditOrderForm)}>Отвязать</button>
+                          </div>
+                        ) : null}
+                        {orderClientResults.length > 0 ? (
+                          <div className="client-search-results">
+                            {orderClientResults.map((c) => (
+                              <div key={c.id} className="client-search-item" onClick={() => pickClientForOrder(c, setEditOrderForm)}>
+                                <span className="client-search-name">{c.fullName || '(без имени)'}</span>
+                                <span className="client-search-phone">{c.phone}</span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                    <label className="field">
+                      <span className="field-label">Имя контакта</span>
+                      <input
+                        value={editOrderForm.contactName}
+                        onChange={(e) => setEditOrderForm((p) => ({ ...p, contactName: e.target.value }))}
+                      />
+                    </label>
+                    <label className="field">
+                      <span className="field-label">Телефон контакта</span>
+                      <input
+                        value={editOrderForm.contactPhone}
+                        onChange={(e) => setEditOrderForm((p) => ({ ...p, contactPhone: e.target.value }))}
+                      />
+                    </label>
+                    <label className="field">
+                      <span className="field-label">Модель</span>
+                      <select value={editOrderForm.model} onChange={(e) => setEditOrderForm((p) => ({ ...p, model: e.target.value }))}>
+                        {ORDER_MODEL_OPTIONS.map((v) => <option key={v} value={v}>{labelOf(v, ORDER_MODEL_LABELS)}</option>)}
+                      </select>
+                    </label>
+                    <label className="field">
+                      <span className="field-label">Источник</span>
+                      <select value={editOrderForm.source} onChange={(e) => setEditOrderForm((p) => ({ ...p, source: e.target.value }))}>
+                        {ORDER_SOURCE_OPTIONS.map((v) => <option key={v} value={v}>{labelOf(v, ORDER_SOURCE_LABELS)}</option>)}
+                      </select>
+                    </label>
+                    <label className="field">
+                      <span className="field-label">Статус</span>
+                      <select value={editOrderForm.status} onChange={(e) => setEditOrderForm((p) => ({ ...p, status: e.target.value }))}>
+                        {ORDER_STATUS_OPTIONS.map((v) => <option key={v} value={v}>{labelOf(v, ORDER_STATUS_LABELS)}</option>)}
+                      </select>
+                    </label>
+                    <label className="field">
+                      <span className="field-label">Желаемый цвет</span>
+                      <input
+                        value={editOrderForm.desiredColor}
+                        onChange={(e) => setEditOrderForm((p) => ({ ...p, desiredColor: e.target.value }))}
+                      />
+                    </label>
+                    <label className="field">
+                      <span className="field-label">Аванс (руб.)</span>
+                      <input
+                        type="number"
+                        min="0"
+                        value={editOrderForm.depositAmount}
+                        onChange={(e) => setEditOrderForm((p) => ({ ...p, depositAmount: e.target.value }))}
+                      />
+                    </label>
+                    <label className="field field-wide">
+                      <span className="field-label">Заметки</span>
+                      <textarea
+                        rows={3}
+                        value={editOrderForm.notes}
+                        onChange={(e) => setEditOrderForm((p) => ({ ...p, notes: e.target.value }))}
+                      />
+                    </label>
+                  </div>
+                  <button type="submit">Сохранить</button>
+                  {editOrderError ? <p className="error-text">{editOrderError}</p> : null}
+                </form>
+              ) : null}
+
+              {loadingOrders ? (
+                <p>Загрузка...</p>
+              ) : (
+                <table>
+                  <thead>
+                    <tr>
+                      <th>№</th>
+                      <th>Дата</th>
+                      <th>Источник</th>
+                      <th>Клиент / Контакт</th>
+                      <th>Телефон</th>
+                      <th>Модель</th>
+                      <th>Статус</th>
+                      <th>Цвет</th>
+                      <th>Аванс</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {orders.length === 0 ? (
+                      <tr><td colSpan={9} style={{ textAlign: 'center', color: 'var(--text-muted)' }}>Заявок пока нет</td></tr>
+                    ) : orders.map((order) => (
+                      <tr
+                        key={order.id}
+                        className="table-row-clickable"
+                        onClick={() => selectOrderForEdit(order)}
+                      >
+                        <td>{order.id}</td>
+                        <td>{new Date(order.createdAt).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })}</td>
+                        <td>{labelOf(order.source, ORDER_SOURCE_LABELS)}</td>
+                        <td>{order.clientName || order.contactName || '-'}</td>
+                        <td>{order.contactPhone || '-'}</td>
+                        <td>{labelOf(order.model, ORDER_MODEL_LABELS)}</td>
+                        <td>{labelOf(order.status, ORDER_STATUS_LABELS)}</td>
+                        <td>{order.desiredColor || '-'}</td>
+                        <td>{order.depositAmount ? `${Number(order.depositAmount).toLocaleString('ru-RU')} ₽` : '-'}</td>
                       </tr>
                     ))}
                   </tbody>

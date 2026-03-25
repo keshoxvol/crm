@@ -2,6 +2,8 @@ package ru.vsz.crm.vk.service;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -25,6 +27,10 @@ import ru.vsz.crm.client.domain.ClientStatus;
 import ru.vsz.crm.client.domain.ClientTemperature;
 import ru.vsz.crm.client.repository.ClientRepository;
 import ru.vsz.crm.client.service.ClientNotFoundException;
+import ru.vsz.crm.order.api.dto.PublicCreateOrderRequest;
+import ru.vsz.crm.order.domain.BoatModel;
+import ru.vsz.crm.order.service.OrderService;
+import ru.vsz.crm.telegram.TelegramService;
 import ru.vsz.crm.vk.api.dto.VkCallbackEvent;
 import ru.vsz.crm.vk.api.dto.VkDialogSummary;
 import ru.vsz.crm.vk.api.dto.VkMessageResponse;
@@ -37,9 +43,16 @@ import ru.vsz.crm.vk.repository.VkMessageRepository;
 @Service
 public class VkService {
 
+    private static final Logger log = LoggerFactory.getLogger(VkService.class);
+
     private static final String VK_API = "https://api.vk.com/method";
     private static final String VK_VERSION = "5.199";
     private static final int PAGE_SIZE = 200;
+
+    private static final String BOT_STATE_AWAITING_PHONE = "AWAITING_PHONE";
+
+    private static final String KEYBOARD_MAIN = """
+            {"one_time":true,"buttons":[[{"action":{"type":"text","payload":"{\\"cmd\\":\\"details\\"}","label":"📋 Узнать подробнее"},"color":"primary"}],[{"action":{"type":"text","payload":"{\\"cmd\\":\\"order\\"}","label":"🚤 Заказать лодку"},"color":"positive"}]]}""";
 
     private final String communityToken;
     private final long communityId;
@@ -47,6 +60,8 @@ public class VkService {
     private final VkDialogStateRepository vkDialogStateRepository;
     private final ClientRepository clientRepository;
     private final VkSseService vkSseService;
+    private final OrderService orderService;
+    private final TelegramService telegramService;
     private final RestClient restClient;
 
     public VkService(
@@ -55,13 +70,17 @@ public class VkService {
             VkMessageRepository vkMessageRepository,
             VkDialogStateRepository vkDialogStateRepository,
             ClientRepository clientRepository,
-            VkSseService vkSseService) {
+            VkSseService vkSseService,
+            OrderService orderService,
+            TelegramService telegramService) {
         this.communityToken = communityToken;
         this.communityId = communityId;
         this.vkMessageRepository = vkMessageRepository;
         this.vkDialogStateRepository = vkDialogStateRepository;
         this.clientRepository = clientRepository;
         this.vkSseService = vkSseService;
+        this.orderService = orderService;
+        this.telegramService = telegramService;
         this.restClient = RestClient.create();
     }
 
@@ -90,7 +109,8 @@ public class VkService {
                             outReadId);
                 })
                 .filter(Objects::nonNull)
-                .sorted(Comparator.comparing(VkDialogSummary::lastMessageAt).reversed())
+                .sorted(Comparator.comparing(VkDialogSummary::lastMessageAt,
+                        Comparator.nullsLast(Comparator.naturalOrder())).reversed())
                 .toList();
     }
 
@@ -129,18 +149,27 @@ public class VkService {
         // 3. Для каждого — находим или создаём клиента, синхронизируем сообщения
         for (VkUserInfo user : userInfos) {
             String vkIdStr = String.valueOf(user.id());
-            var existing = clientRepository.findFirstByVkProfile(vkIdStr);
+            var existing = clientRepository.findFirstByVkId(user.id());
+            if (existing.isEmpty()) {
+                // Обратная совместимость: старые записи могли быть созданы с vk_profile = numeric ID
+                existing = clientRepository.findFirstByVkProfile(vkIdStr);
+            }
 
             Long clientId;
             if (existing.isPresent()) {
-                clientId = existing.get().getId();
+                // Если vkId ещё не проставлен (старая запись) — проставим
+                var existingClient = existing.get();
+                if (existingClient.getVkId() == null) {
+                    existingClient.setVkId(user.id());
+                    clientRepository.save(existingClient);
+                }
+                clientId = existingClient.getId();
                 existingClientsMatched++;
             } else {
                 Client client = new Client();
                 client.setVkProfile(vkIdStr);
+                client.setVkId(user.id());
                 client.setFullName(user.firstName() + " " + user.lastName());
-                // Телефон-заглушка: числовой VK ID проходит валидацию формата
-                client.setPhone(vkIdStr.length() <= 32 ? vkIdStr : vkIdStr.substring(0, 32));
                 client.setSource(ClientSource.VK);
                 client.setStatus(ClientStatus.NEW);
                 client.setModelInterest(ClientModelInterest.UNDEFINED);
@@ -240,7 +269,10 @@ public class VkService {
         long fromId = messageNode.has("from_id") ? messageNode.get("from_id").asLong() : 0;
         if (fromId <= 0) return; // исходящее от сообщества — не сохраняем повторно
 
-        var existing = clientRepository.findFirstByVkProfile(String.valueOf(fromId));
+        var existing = clientRepository.findFirstByVkId(fromId);
+        if (existing.isEmpty()) {
+            existing = clientRepository.findFirstByVkProfile(String.valueOf(fromId));
+        }
         if (existing.isEmpty()) return; // неизвестный клиент — подхватится на следующей синхронизации
 
         Long clientId = existing.get().getId();
@@ -269,6 +301,10 @@ public class VkService {
         vkSseService.broadcast("message_new", Map.of(
                 "clientId", clientId,
                 "message", toResponse(msg)));
+
+        // Бот-логика — обрабатываем асинхронно после коммита транзакции
+        String payload = messageNode.has("payload") ? messageNode.get("payload").asText("") : "";
+        handleBot(clientId, fromId, text, payload);
     }
 
     @Transactional
@@ -282,7 +318,10 @@ public class VkService {
         long peerId = obj.has("peer_id") ? obj.get("peer_id").asLong() : fromId;
         long localId = obj.has("local_id") ? obj.get("local_id").asLong() : 0;
 
-        var existing = clientRepository.findFirstByVkProfile(String.valueOf(peerId));
+        var existing = clientRepository.findFirstByVkId(peerId);
+        if (existing.isEmpty()) {
+            existing = clientRepository.findFirstByVkProfile(String.valueOf(peerId));
+        }
         if (existing.isEmpty()) return;
 
         Long clientId = existing.get().getId();
@@ -334,6 +373,104 @@ public class VkService {
         vkMessageRepository.findFirstByClientIdOrderBySentAtDesc(clientId)
                 .ifPresent(msg -> state.setInReadId(msg.getVkMsgId()));
         vkDialogStateRepository.save(state);
+    }
+
+    // ── Bot logic ─────────────────────────────────────────────────────────────
+
+    private void handleBot(Long clientId, long vkUserId, String text, String payload) {
+        if (communityToken == null || communityToken.isBlank()) return;
+
+        var state = vkDialogStateRepository.findById(clientId).orElseGet(() -> {
+            var s = new VkDialogState();
+            s.setClientId(clientId);
+            return s;
+        });
+
+        // 1. Кнопка «Начать» (ВК приветственное сообщение)
+        if (payload.contains("\"command\":\"start\"") || "Начать".equalsIgnoreCase(text.trim())) {
+            sendBotMessage(clientId, vkUserId, "Выберите, что вас интересует:", KEYBOARD_MAIN);
+            return;
+        }
+
+        // 2. Нажата одна из кнопок меню
+        if (payload.contains("\"cmd\":\"details\"")) {
+            sendBotMessage(clientId, vkUserId,
+                    "🚤 Лодки ЛОСЬ 400 — производство ВСЗ:\n\n" +
+                    "• ЛОСЬ 400 (базовая) — 140 000 ₽\n" +
+                    "• ЛОСЬ 400 Сохатый (с рубкой) — 180 000 ₽\n\n" +
+                    "Корпус из ПНД-пластика, не гниёт и не ржавеет.\n" +
+                    "Длина 4 м, грузоподъёмность 300 кг.\n" +
+                    "Учтём все ваши пожелания при изготовлении.\n" +
+                    "Доставка по всей России.",
+                    KEYBOARD_MAIN);
+            return;
+        }
+
+        if (payload.contains("\"cmd\":\"order\"")) {
+            state.setBotState(BOT_STATE_AWAITING_PHONE);
+            vkDialogStateRepository.save(state);
+            sendBotMessage(clientId, vkUserId,
+                    "📞 Оставьте ваш номер телефона — менеджер перезвонит в ближайшее время.", null);
+            return;
+        }
+
+        // 3. Ждём номер телефона
+        if (BOT_STATE_AWAITING_PHONE.equals(state.getBotState())) {
+            String digits = text.replaceAll("[^0-9]", "");
+            if (digits.length() >= 7) {
+                var client = clientRepository.findById(clientId).orElse(null);
+                String name = client != null ? client.getFullName() : null;
+                orderService.createFromPublic(new PublicCreateOrderRequest(
+                        name, text.trim(), BoatModel.UNDEFINED, "Заявка из ВК"));
+                state.setBotState(null);
+                vkDialogStateRepository.save(state);
+                sendBotMessage(clientId, vkUserId,
+                        "Спасибо! Ваша заявка принята 🙌 Менеджер свяжется с вами в ближайшее время.", null);
+            } else {
+                sendBotMessage(clientId, vkUserId,
+                        "Пожалуйста, укажите номер телефона, например: 89001234567", null);
+            }
+        }
+    }
+
+    private void sendBotMessage(Long clientId, long vkUserId, String text, String keyboard) {
+        long randomId = System.currentTimeMillis();
+
+        MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
+        form.add("peer_id", String.valueOf(vkUserId));
+        form.add("message", text);
+        form.add("group_id", String.valueOf(communityId));
+        form.add("random_id", String.valueOf(randomId));
+        form.add("access_token", communityToken);
+        form.add("v", VK_VERSION);
+        if (keyboard != null) {
+            form.add("keyboard", keyboard);
+        }
+
+        try {
+            VkSendResponse resp = restClient.post()
+                    .uri(VK_API + "/messages.send")
+                    .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                    .body(form)
+                    .retrieve()
+                    .body(VkSendResponse.class);
+
+            long vkMsgId = (resp != null) ? resp.response() : randomId;
+
+            VkMessage msg = new VkMessage();
+            msg.setClientId(clientId);
+            msg.setVkMsgId(vkMsgId);
+            msg.setText(text);
+            msg.setSentAt(OffsetDateTime.now());
+            msg.setDirection("OUT");
+            vkMessageRepository.save(msg);
+
+            vkSseService.broadcast("message_new", Map.of(
+                    "clientId", clientId,
+                    "message", toResponse(msg)));
+        } catch (Exception e) {
+            log.error("Ошибка отправки бот-сообщения клиенту {}: {}", clientId, e.getMessage());
+        }
     }
 
     private long resolveVkUserId(String vkProfile) {

@@ -11,6 +11,7 @@ public record ClientResponse(
         String fullName,
         String phone,
         String vkProfile,
+        Long vkId,
         ClientSource source,
         ClientStatus status,
         ClientModelInterest modelInterest,

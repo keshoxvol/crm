@@ -17,3 +17,11 @@ databaseChangeLog:
       file: db/changelog/changes/008-create-ai-prompt.sql
   - include:
       file: db/changelog/changes/009-add-assistant-prompt.sql
+  - include:
+      file: db/changelog/changes/010-add-suggest-reply-prompt.sql
+  - include:
+      file: db/changelog/changes/011-create-boat-order.sql
+  - include:
+      file: db/changelog/changes/012-add-vk-id-to-client.sql
+  - include:
+      file: db/changelog/changes/013-add-bot-state-to-vk-dialog-state.sql

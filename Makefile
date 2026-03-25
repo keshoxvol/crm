@@ -9,7 +9,7 @@ CLOUD_COMPOSE := docker compose -p crm-cloud -f docker-compose.cloud.yml
 LOCAL_INFRA_COMPOSE := docker compose -p crm-local-infra -f docker-compose.local-infra.yml
 
 cloud-build:
-	$(CLOUD_COMPOSE) build
+	$(CLOUD_COMPOSE) build --parallel
 
 cloud-up:
 	$(CLOUD_COMPOSE) up -d

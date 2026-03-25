@@ -7,5 +7,9 @@ import ru.vsz.crm.client.domain.Client;
 
 public interface ClientRepository extends JpaRepository<Client, Long>, JpaSpecificationExecutor<Client> {
 
+    Optional<Client> findFirstByPhone(String phone);
+
     Optional<Client> findFirstByVkProfile(String vkProfile);
+
+    Optional<Client> findFirstByVkId(Long vkId);
 }

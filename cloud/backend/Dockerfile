@@ -6,8 +6,13 @@ COPY gradle gradle
 COPY build.gradle settings.gradle ./
 RUN chmod +x gradlew
 
+# Отдельный слой для зависимостей — пересобирается только при изменении build.gradle
+RUN --mount=type=cache,target=/root/.gradle \
+    ./gradlew --no-daemon dependencies
+
 COPY src src
-RUN ./gradlew --no-daemon bootJar
+RUN --mount=type=cache,target=/root/.gradle \
+    ./gradlew --no-daemon bootJar
 
 FROM eclipse-temurin:21-jre
 WORKDIR /app

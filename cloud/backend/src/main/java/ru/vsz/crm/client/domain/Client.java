@@ -23,11 +23,14 @@ public class Client {
     @Column(name = "full_name")
     private String fullName;
 
-    @Column(name = "phone", nullable = false, length = 32)
+    @Column(name = "phone", length = 32)
     private String phone;
 
     @Column(name = "vk_profile")
     private String vkProfile;
+
+    @Column(name = "vk_id")
+    private Long vkId;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "source", nullable = false, length = 32)
@@ -107,6 +110,14 @@ public class Client {
 
     public void setVkProfile(String vkProfile) {
         this.vkProfile = vkProfile;
+    }
+
+    public Long getVkId() {
+        return vkId;
+    }
+
+    public void setVkId(Long vkId) {
+        this.vkId = vkId;
     }
 
     public ClientSource getSource() {

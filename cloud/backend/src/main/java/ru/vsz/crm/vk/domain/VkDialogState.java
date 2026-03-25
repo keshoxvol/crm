@@ -28,6 +28,10 @@ public class VkDialogState {
     @Column(name = "out_read_id", nullable = false)
     private long outReadId;
 
+    /** Состояние бота: null — не взаимодействовал, AWAITING_PHONE — ждём номер телефона */
+    @Column(name = "bot_state", length = 32)
+    private String botState;
+
     @Column(name = "updated_at", nullable = false)
     private OffsetDateTime updatedAt;
 
@@ -48,6 +52,9 @@ public class VkDialogState {
 
     public long getOutReadId() { return outReadId; }
     public void setOutReadId(long outReadId) { this.outReadId = outReadId; }
+
+    public String getBotState() { return botState; }
+    public void setBotState(String botState) { this.botState = botState; }
 
     public OffsetDateTime getUpdatedAt() { return updatedAt; }
 }

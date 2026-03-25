@@ -37,7 +37,7 @@ public class ClientService {
     public ClientResponse create(CreateClientRequest request) {
         Client client = new Client();
         client.setFullName(request.fullName());
-        client.setPhone(request.phone().trim());
+        client.setPhone(request.phone() != null ? request.phone().trim() : null);
         client.setVkProfile(request.vkProfile());
         client.setSource(request.source());
         client.setStatus(request.status());
@@ -152,6 +152,7 @@ public class ClientService {
                 client.getFullName(),
                 client.getPhone(),
                 client.getVkProfile(),
+                client.getVkId(),
                 client.getSource(),
                 client.getStatus(),
                 client.getModelInterest(),

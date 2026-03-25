@@ -16,7 +16,7 @@ public interface VkMessageRepository extends JpaRepository<VkMessage, Long> {
 
     int countByClientId(Long clientId);
 
-    @Query("SELECT DISTINCT vm.clientId FROM VkMessage vm")
+    @Query("SELECT vm.clientId FROM VkMessage vm GROUP BY vm.clientId ORDER BY MAX(vm.sentAt) DESC")
     List<Long> findAllDistinctClientIds();
 
     @Query("""
