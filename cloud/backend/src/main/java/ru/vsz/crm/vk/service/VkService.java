@@ -264,9 +264,14 @@ public class VkService {
     @Transactional
     public void processIncomingMessage(VkCallbackEvent event) {
         var messageNode = event.object() != null ? event.object().get("message") : null;
+        log.info("VK callback message_new: object={}", event.object());
         if (messageNode == null) return;
 
         long fromId = messageNode.has("from_id") ? messageNode.get("from_id").asLong() : 0;
+        log.info("VK incoming: fromId={}, text={}, payload={}",
+                fromId,
+                messageNode.has("text") ? messageNode.get("text").asText() : "",
+                messageNode.has("payload") ? messageNode.get("payload").asText() : "");
         if (fromId <= 0) return; // исходящее от сообщества — не сохраняем повторно
 
         var existing = clientRepository.findFirstByVkId(fromId);
