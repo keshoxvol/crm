@@ -11,7 +11,10 @@ import ru.vsz.crm.s3.S3Service;
 import java.io.IOException;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 public class InstructionService {
@@ -149,14 +152,34 @@ public class InstructionService {
 
     private void applySteps(Instruction instruction, List<SaveInstructionRequest.StepRequest> stepRequests) {
         if (stepRequests == null) return;
-        instruction.getSteps().clear();
+
+        // Index existing steps by id
+        Map<Long, InstructionStep> existingById = instruction.getSteps().stream()
+                .filter(s -> s.getId() != null)
+                .collect(Collectors.toMap(InstructionStep::getId, s -> s));
+
+        // IDs present in the incoming request
+        Set<Long> incomingIds = stepRequests.stream()
+                .filter(sr -> sr.id() != null)
+                .map(SaveInstructionRequest.StepRequest::id)
+                .collect(Collectors.toSet());
+
+        // Remove steps that were deleted by the user — orphanRemoval cascades to their files
+        instruction.getSteps().removeIf(s -> s.getId() == null || !incomingIds.contains(s.getId()));
+
+        // Update existing steps in-place (files are preserved) or create new ones
         for (var sr : stepRequests) {
-            var step = new InstructionStep();
-            step.setInstruction(instruction);
+            InstructionStep step;
+            if (sr.id() != null && existingById.containsKey(sr.id())) {
+                step = existingById.get(sr.id());   // update in-place — files untouched
+            } else {
+                step = new InstructionStep();
+                step.setInstruction(instruction);
+                instruction.getSteps().add(step);
+            }
             step.setStepNumber(sr.stepNumber());
             step.setTitle(sr.title());
             step.setComment(sr.comment());
-            instruction.getSteps().add(step);
         }
     }
 

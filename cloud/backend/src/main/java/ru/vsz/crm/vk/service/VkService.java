@@ -29,6 +29,7 @@ import ru.vsz.crm.client.repository.ClientRepository;
 import ru.vsz.crm.client.service.ClientNotFoundException;
 import ru.vsz.crm.order.domain.BoatModel;
 import ru.vsz.crm.order.service.OrderService;
+import ru.vsz.crm.ai.AiService;
 import ru.vsz.crm.telegram.TelegramService;
 import ru.vsz.crm.vk.api.dto.VkCallbackEvent;
 import ru.vsz.crm.vk.api.dto.VkDialogSummary;
@@ -68,6 +69,7 @@ public class VkService {
     private final VkSseService vkSseService;
     private final OrderService orderService;
     private final TelegramService telegramService;
+    private final AiService aiService;
     private final RestClient restClient;
 
     public VkService(
@@ -78,7 +80,8 @@ public class VkService {
             ClientRepository clientRepository,
             VkSseService vkSseService,
             OrderService orderService,
-            TelegramService telegramService) {
+            TelegramService telegramService,
+            AiService aiService) {
         this.communityToken = communityToken;
         this.communityId = communityId;
         this.vkMessageRepository = vkMessageRepository;
@@ -87,6 +90,7 @@ public class VkService {
         this.vkSseService = vkSseService;
         this.orderService = orderService;
         this.telegramService = telegramService;
+        this.aiService = aiService;
         this.restClient = RestClient.create();
     }
 
@@ -450,9 +454,22 @@ public class VkService {
         String clientName = client != null ? client.getFullName() : "Неизвестный";
         String vkLink = client != null && client.getVkProfile() != null
                 ? "vk.com/" + client.getVkProfile() : String.valueOf(vkUserId);
-        telegramService.sendMessage(String.format(
-                "💬 Новое сообщение в ВК от %s (%s):\n\n«%s»",
+
+        StringBuilder notification = new StringBuilder();
+        notification.append(String.format("💬 Новое сообщение в ВК\n%s (%s):\n\n«%s»",
                 clientName, vkLink, text));
+
+        if (aiService.isConfigured()) {
+            try {
+                var messages = getMessages(clientId);
+                String analysis = aiService.analyzeClient(messages);
+                notification.append("\n\n─────────────\n").append(analysis);
+            } catch (Exception e) {
+                log.warn("AI-анализ недоступен для клиента {}: {}", clientId, e.getMessage());
+            }
+        }
+
+        telegramService.sendMessage(notification.toString());
     }
 
     private void sendBotMessage(Long clientId, long vkUserId, String text, String keyboard) {

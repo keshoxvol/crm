@@ -177,10 +177,23 @@ function toInputDateTime(isoValue) {
   return new Date(date.getTime() - timezoneOffsetMs).toISOString().slice(0, 16)
 }
 
+function parseHash() {
+  const h = window.location.hash.replace(/^#\/?/, '')
+  const [page, id] = h.split('/')
+  const validPages = ALL_PAGES.map((p) => p.key)
+  const resolvedPage = validPages.includes(page) ? page : 'clients'
+  return { page: resolvedPage, id: id ? Number(id) : null }
+}
+
+function pushRoute(page, id) {
+  const hash = id ? `#/${page}/${id}` : `#/${page}`
+  window.history.pushState(null, '', hash)
+}
+
 export default function App() {
   const [auth, setAuth] = useState(null)
   const [authChecked, setAuthChecked] = useState(false)
-  const [activePage, setActivePage] = useState('clients')
+  const [activePage, setActivePage] = useState(() => parseHash().page)
   const [health, setHealth] = useState('loading')
   const [users, setUsers] = useState([])
   const [loadingUsers, setLoadingUsers] = useState(false)
@@ -242,6 +255,20 @@ export default function App() {
   const [promptsSaving, setPromptsSaving] = useState({})
   const [promptsSaved, setPromptsSaved] = useState({})
 
+  const [documents, setDocuments] = useState([])
+  const [loadingDocuments, setLoadingDocuments] = useState(false)
+  const [selectedDocument, setSelectedDocument] = useState(null)
+  const [documentEditMode, setDocumentEditMode] = useState(false)
+  const [documentMetaForm, setDocumentMetaForm] = useState({ title: '', description: '' })
+  const [documentFormError, setDocumentFormError] = useState('')
+  const [documentUploadForm, setDocumentUploadForm] = useState({ title: '', description: '' })
+  const [documentUploadFile, setDocumentUploadFile] = useState(null)
+  const [documentUploadError, setDocumentUploadError] = useState('')
+  const [documentUploading, setDocumentUploading] = useState(false)
+  const [documentReplaceFile, setDocumentReplaceFile] = useState(null)
+  const [documentHistoryOpen, setDocumentHistoryOpen] = useState(false)
+  const [showDocumentUploadForm, setShowDocumentUploadForm] = useState(false)
+
   const [instructions, setInstructions] = useState([])
   const [loadingInstructions, setLoadingInstructions] = useState(false)
   const [selectedInstruction, setSelectedInstruction] = useState(null)
@@ -250,6 +277,9 @@ export default function App() {
   const [instructionFormError, setInstructionFormError] = useState('')
   const [replacingFile, setReplacingFile] = useState(null) // { fileId, file, fileName }
   const [fileUploadError, setFileUploadError] = useState('')
+  const [photoUrls, setPhotoUrls] = useState({}) // { [fileId]: presignedUrl }
+  const [lightboxUrl, setLightboxUrl] = useState(null)
+  const [focusedStepId, setFocusedStepId] = useState(null)
 
   const [clientFilters, setClientFilters] = useState({
     q: '',
@@ -281,6 +311,18 @@ export default function App() {
     return ALL_PAGES.filter((page) => allowed.includes(page.key))
   }, [auth])
 
+  function navigate(page, id = null) {
+    if (page !== activePage) {
+      setSelectedInstruction(null)
+      setSelectedDocument(null)
+      setSelectedDialog(null)
+      setInstructionEditMode(false)
+      setDocumentEditMode(false)
+    }
+    setActivePage(page)
+    pushRoute(page, id)
+  }
+
   useEffect(() => {
     fetch('/api/public/health')
       .then((res) => res.json())
@@ -311,6 +353,39 @@ export default function App() {
       .catch(() => localStorage.removeItem(AUTH_STORAGE_KEY))
       .finally(() => setAuthChecked(true))
   }, [])
+
+  // On first load after auth resolves — open detail view if id is in URL
+  useEffect(() => {
+    if (!auth) return
+    const { page, id } = parseHash()
+    if (!window.location.hash) {
+      window.history.replaceState(null, '', `#/${page}`)
+    }
+    if (id) {
+      if (page === 'instructions') openInstruction(id)
+      if (page === 'documents') openDocument(id)
+    }
+  }, [auth]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Browser back / forward
+  useEffect(() => {
+    function onPopState() {
+      const { page, id } = parseHash()
+      setActivePage(page)
+      if (!id) {
+        setSelectedInstruction(null)
+        setSelectedDocument(null)
+        setSelectedDialog(null)
+        setInstructionEditMode(false)
+        setDocumentEditMode(false)
+      } else {
+        if (page === 'instructions') openInstruction(id)
+        if (page === 'documents') openDocument(id)
+      }
+    }
+    window.addEventListener('popstate', onPopState)
+    return () => window.removeEventListener('popstate', onPopState)
+  }, [auth]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!auth || activePage !== 'users') return
@@ -418,6 +493,18 @@ export default function App() {
     loadInstructions()
   }, [activePage, auth])
 
+  useEffect(() => {
+    if (!auth || activePage !== 'documents') return
+    loadDocuments()
+  }, [activePage, auth])
+
+  useEffect(() => {
+    if (!lightboxUrl) return
+    const handler = (e) => { if (e.key === 'Escape') setLightboxUrl(null) }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [lightboxUrl])
+
   function savePrompt(key, content) {
     setPromptsSaving((p) => ({ ...p, [key]: true }))
     setPromptsSaved((p) => ({ ...p, [key]: false }))
@@ -487,7 +574,7 @@ export default function App() {
   function doLogout() {
     localStorage.removeItem(AUTH_STORAGE_KEY)
     setAuth(null)
-    setActivePage('clients')
+    navigate('clients')
   }
 
   function submitLogin(event) {
@@ -734,6 +821,7 @@ export default function App() {
 
   function selectDialog(dialog) {
     setSelectedDialog(dialog)
+    pushRoute('dialogs', dialog.clientId)
     setChatInputText('')
     setSendMessageError('')
     setAiAnalysis('')
@@ -903,7 +991,7 @@ export default function App() {
     authFetch(`/api/orders/${orderId}`)
       .then((res) => res.json())
       .then((order) => {
-        setActivePage('orders')
+        navigate('orders')
         setShowCreateOrderForm(false)
         setOrderClientSearch(order.clientName
           ? `${order.clientName}${order.contactPhone ? ` (${order.contactPhone})` : ''}`
@@ -1006,12 +1094,29 @@ export default function App() {
       .finally(() => setLoadingInstructions(false))
   }
 
-  function openInstruction(id) {
+  function openInstruction(id, keepEditMode = false) {
     authFetch(`/api/instructions/${id}`)
       .then((res) => res.json())
       .then((data) => {
+        setActivePage('instructions')
         setSelectedInstruction(data)
-        setInstructionEditMode(false)
+        if (!keepEditMode) setInstructionEditMode(false)
+        if (!keepEditMode) pushRoute('instructions', id)
+        // Prefetch presigned URLs for all photos
+        const photoFiles = (data.steps || []).flatMap((s) => (s.files || []).filter((f) => f.fileType === 'PHOTO'))
+        if (photoFiles.length === 0) return
+        Promise.all(
+          photoFiles.map((f) =>
+            authFetch(`/api/instructions/files/${f.id}/download-url`)
+              .then((r) => r.json())
+              .then((d) => ({ id: f.id, url: d.url }))
+              .catch(() => null)
+          )
+        ).then((results) => {
+          const map = {}
+          results.forEach((r) => { if (r) map[r.id] = r.url })
+          setPhotoUrls(map)
+        })
       })
       .catch(() => {})
   }
@@ -1088,8 +1193,8 @@ export default function App() {
     })
       .then((res) => res.json())
       .then((data) => {
-        setSelectedInstruction(data)
         setInstructionEditMode(false)
+        openInstruction(data.id)
         loadInstructions()
       })
       .catch(() => setInstructionFormError('Ошибка сохранения'))
@@ -1100,12 +1205,14 @@ export default function App() {
     authFetch(`/api/instructions/${id}`, { method: 'DELETE' })
       .then(() => {
         setSelectedInstruction(null)
+        navigate('instructions')
         loadInstructions()
       })
       .catch(() => {})
   }
 
   function handleStepPaste(e, stepId) {
+    if (!instructionEditMode) return
     const items = e.clipboardData?.items
     if (!items) return
     for (const item of items) {
@@ -1131,7 +1238,7 @@ export default function App() {
         if (!res.ok) throw new Error()
         return res.json()
       })
-      .then(() => openInstruction(selectedInstruction.id))
+      .then(() => openInstruction(selectedInstruction.id, true))
       .catch(() => setFileUploadError('Ошибка загрузки файла'))
   }
 
@@ -1149,7 +1256,7 @@ export default function App() {
       })
       .then(() => {
         setReplacingFile(null)
-        openInstruction(selectedInstruction.id)
+        openInstruction(selectedInstruction.id, true)
       })
       .catch(() => setFileUploadError('Ошибка замены файла'))
   }
@@ -1157,19 +1264,135 @@ export default function App() {
   function deleteStepFile(fileId) {
     if (!window.confirm('Удалить файл?')) return
     authFetch(`/api/instructions/files/${fileId}`, { method: 'DELETE' })
-      .then(() => openInstruction(selectedInstruction.id))
+      .then(() => openInstruction(selectedInstruction.id, true))
       .catch(() => {})
   }
 
   function downloadFile(fileId, fileName) {
     authFetch(`/api/instructions/files/${fileId}/download-url`)
       .then((res) => res.json())
+      .then((data) => triggerDownload(data.url, fileName))
+      .catch(() => {})
+  }
+
+  function loadDocuments() {
+    setLoadingDocuments(true)
+    authFetch('/api/documents')
+      .then((res) => res.json())
+      .then((data) => setDocuments(data))
+      .catch(() => {})
+      .finally(() => setLoadingDocuments(false))
+  }
+
+  function openDocument(id) {
+    authFetch(`/api/documents/${id}`)
+      .then((res) => res.json())
       .then((data) => {
-        const a = document.createElement('a')
-        a.href = data.url
-        a.download = fileName
-        a.click()
+        setActivePage('documents')
+        setSelectedDocument(data)
+        setDocumentEditMode(false)
+        setDocumentHistoryOpen(false)
+        setDocumentFormError('')
+        setDocumentReplaceFile(null)
+        pushRoute('documents', id)
       })
+      .catch(() => {})
+  }
+
+  function startEditDocumentMeta() {
+    setDocumentMetaForm({ title: selectedDocument.title, description: selectedDocument.description || '' })
+    setDocumentEditMode(true)
+    setDocumentFormError('')
+  }
+
+  function saveDocumentMeta() {
+    if (!documentMetaForm.title.trim()) { setDocumentFormError('Название обязательно'); return }
+    authFetch(`/api/documents/${selectedDocument.id}/meta`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(documentMetaForm)
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        setSelectedDocument(data)
+        setDocumentEditMode(false)
+        setDocuments((prev) => prev.map((d) => d.id === data.id
+          ? { ...d, title: data.title, description: data.description, updatedAt: data.updatedAt }
+          : d))
+      })
+      .catch(() => setDocumentFormError('Ошибка сохранения'))
+  }
+
+  function saveDocumentUpload() {
+    if (!documentUploadForm.title.trim()) { setDocumentUploadError('Название обязательно'); return }
+    if (!documentUploadFile) { setDocumentUploadError('Выберите файл'); return }
+    const fd = new FormData()
+    fd.append('title', documentUploadForm.title)
+    if (documentUploadForm.description) fd.append('description', documentUploadForm.description)
+    fd.append('file', documentUploadFile)
+    setDocumentUploading(true)
+    authFetch('/api/documents', { method: 'POST', body: fd })
+      .then((res) => res.json())
+      .then((data) => {
+        setDocuments((prev) => [{ id: data.id, title: data.title, description: data.description, fileName: data.fileName, size: data.size, version: data.version, createdAt: data.createdAt, updatedAt: data.updatedAt }, ...prev])
+        setShowDocumentUploadForm(false)
+        setDocumentUploadForm({ title: '', description: '' })
+        setDocumentUploadFile(null)
+        setDocumentUploadError('')
+      })
+      .catch(() => setDocumentUploadError('Ошибка загрузки'))
+      .finally(() => setDocumentUploading(false))
+  }
+
+  function replaceDocumentFile() {
+    if (!documentReplaceFile) return
+    const fd = new FormData()
+    fd.append('file', documentReplaceFile)
+    setDocumentUploading(true)
+    authFetch(`/api/documents/${selectedDocument.id}/file`, { method: 'PUT', body: fd })
+      .then((res) => res.json())
+      .then((data) => {
+        setSelectedDocument(data)
+        setDocumentReplaceFile(null)
+        setDocuments((prev) => prev.map((d) => d.id === data.id
+          ? { ...d, fileName: data.fileName, size: data.size, version: data.version, updatedAt: data.updatedAt }
+          : d))
+      })
+      .catch(() => {})
+      .finally(() => setDocumentUploading(false))
+  }
+
+  function deleteDocument(id) {
+    if (!window.confirm('Удалить документ?')) return
+    authFetch(`/api/documents/${id}`, { method: 'DELETE' })
+      .then(() => {
+        setDocuments((prev) => prev.filter((d) => d.id !== id))
+        if (selectedDocument?.id === id) setSelectedDocument(null)
+      })
+      .catch(() => {})
+  }
+
+  function triggerDownload(url, fileName) {
+    const a = document.createElement('a')
+    a.href = url
+    a.download = fileName
+    a.style.display = 'none'
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+  }
+
+  function downloadDocument(id, fileName) {
+    authFetch(`/api/documents/${id}/download-url`)
+      .then((res) => res.json())
+      .then((data) => triggerDownload(data.url, fileName))
+      .catch(() => {})
+  }
+
+  function downloadDocumentVersion(versionId, fileName) {
+    authFetch(`/api/documents/versions/${versionId}/download-url`)
+      .then((res) => res.json())
+      .then((data) => triggerDownload(data.url, fileName))
       .catch(() => {})
   }
 
@@ -1228,7 +1451,7 @@ export default function App() {
             key={page.key}
             type="button"
             className={page.key === activePage ? 'nav-btn active' : 'nav-btn'}
-            onClick={() => setActivePage(page.key)}
+            onClick={() => navigate(page.key)}
           >
             {page.label}
           </button>
@@ -2113,6 +2336,215 @@ export default function App() {
               </div>
             </div>
           </div>
+        ) : activePage === 'documents' ? (
+          <section>
+            {/* Header */}
+            <div className="table-head">
+              <h2>Документы</h2>
+              {!selectedDocument && !showDocumentUploadForm && (auth.role === 'ADMIN' || auth.role === 'SUPERADMIN') && (
+                <button type="button" className="ghost-btn" onClick={() => { setShowDocumentUploadForm(true); setDocumentUploadForm({ title: '', description: '' }); setDocumentUploadFile(null); setDocumentUploadError('') }}>
+                  + Загрузить
+                </button>
+              )}
+              {selectedDocument && (
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button type="button" className="ghost-btn" onClick={() => window.history.back()}>← Назад</button>
+                  {!documentEditMode && (auth.role === 'ADMIN' || auth.role === 'SUPERADMIN') && (
+                    <>
+                      <button type="button" className="ghost-btn" onClick={startEditDocumentMeta}>Редактировать</button>
+                      <button type="button" className="ghost-btn" style={{ color: 'var(--red)' }} onClick={() => deleteDocument(selectedDocument.id)}>Удалить</button>
+                    </>
+                  )}
+                  {documentEditMode && (
+                    <>
+                      <button type="button" onClick={saveDocumentMeta}>Сохранить</button>
+                      <button type="button" className="ghost-btn" onClick={() => { setDocumentEditMode(false); setDocumentFormError('') }}>Отмена</button>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Upload form */}
+            {showDocumentUploadForm && !selectedDocument && (
+              <div className="card-form" style={{ maxWidth: '560px' }}>
+                <h3 style={{ margin: '0 0 16px' }}>Новый документ</h3>
+                <label className="form-label">Название *</label>
+                <input
+                  className="form-input"
+                  value={documentUploadForm.title}
+                  onChange={(e) => setDocumentUploadForm((f) => ({ ...f, title: e.target.value }))}
+                  placeholder="Например: Договор поставки"
+                />
+                <label className="form-label" style={{ marginTop: '12px' }}>Описание</label>
+                <textarea
+                  className="form-input"
+                  rows={3}
+                  value={documentUploadForm.description}
+                  onChange={(e) => setDocumentUploadForm((f) => ({ ...f, description: e.target.value }))}
+                  placeholder="Краткое описание документа"
+                />
+                <label className="form-label" style={{ marginTop: '12px' }}>Файл *</label>
+                <input
+                  type="file"
+                  className="form-input"
+                  onChange={(e) => setDocumentUploadFile(e.target.files[0] || null)}
+                />
+                {documentUploadFile && (
+                  <p className="hint-text" style={{ marginTop: '4px' }}>{documentUploadFile.name} ({(documentUploadFile.size / 1024).toFixed(0)} КБ)</p>
+                )}
+                {documentUploadError && <p className="error-text">{documentUploadError}</p>}
+                <div style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
+                  <button type="button" onClick={saveDocumentUpload} disabled={documentUploading}>
+                    {documentUploading ? 'Загрузка...' : 'Сохранить'}
+                  </button>
+                  <button type="button" className="ghost-btn" onClick={() => setShowDocumentUploadForm(false)}>Отмена</button>
+                </div>
+              </div>
+            )}
+
+            {/* Document detail */}
+            {selectedDocument ? (
+              <div>
+                {documentEditMode ? (
+                  <div className="card-form" style={{ maxWidth: '560px' }}>
+                    <label className="form-label">Название *</label>
+                    <input
+                      className="form-input"
+                      value={documentMetaForm.title}
+                      onChange={(e) => setDocumentMetaForm((f) => ({ ...f, title: e.target.value }))}
+                    />
+                    <label className="form-label" style={{ marginTop: '12px' }}>Описание</label>
+                    <textarea
+                      className="form-input"
+                      rows={3}
+                      value={documentMetaForm.description}
+                      onChange={(e) => setDocumentMetaForm((f) => ({ ...f, description: e.target.value }))}
+                    />
+                    {documentFormError && <p className="error-text">{documentFormError}</p>}
+                  </div>
+                ) : (
+                  <div className="card-form" style={{ maxWidth: '640px' }}>
+                    <h3 style={{ margin: '0 0 4px' }}>{selectedDocument.title}</h3>
+                    {selectedDocument.description && (
+                      <p style={{ margin: '0 0 16px', color: 'var(--text-secondary)', whiteSpace: 'pre-wrap' }}>{selectedDocument.description}</p>
+                    )}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 0', borderTop: '1px solid var(--border)' }}>
+                      <span style={{ flex: 1, fontSize: '14px' }}>
+                        📄 {selectedDocument.fileName}
+                        <span className="hint-text" style={{ marginLeft: '8px' }}>
+                          v{selectedDocument.version} · {(selectedDocument.size / 1024).toFixed(0)} КБ
+                        </span>
+                      </span>
+                      <button type="button" className="btn-download" onClick={() => downloadDocument(selectedDocument.id, selectedDocument.fileName)}>
+                        <i className="dl-icon">↓</i> Скачать
+                      </button>
+                    </div>
+
+                    {/* Replace file (admin only) */}
+                    {(auth.role === 'ADMIN' || auth.role === 'SUPERADMIN') && (
+                      <div style={{ paddingTop: '12px', borderTop: '1px solid var(--border)', marginTop: '4px' }}>
+                        <p className="hint-text" style={{ marginBottom: '8px' }}>Заменить файл (станет версией {selectedDocument.version + 1})</p>
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                          <input type="file" className="form-input" style={{ flex: 1 }}
+                            onChange={(e) => setDocumentReplaceFile(e.target.files[0] || null)}
+                          />
+                          <button type="button" disabled={!documentReplaceFile || documentUploading} onClick={replaceDocumentFile}>
+                            {documentUploading ? 'Загрузка...' : 'Заменить'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Version history */}
+                    {selectedDocument.versions && selectedDocument.versions.length > 0 && (
+                      <div style={{ paddingTop: '12px', borderTop: '1px solid var(--border)', marginTop: '8px' }}>
+                        <button
+                          type="button"
+                          className="ghost-btn"
+                          style={{ padding: '4px 0', fontSize: '13px' }}
+                          onClick={() => setDocumentHistoryOpen((v) => !v)}
+                        >
+                          {documentHistoryOpen ? '▾' : '▸'} История версий ({selectedDocument.versions.length})
+                        </button>
+                        {documentHistoryOpen && (
+                          <table className="data-table" style={{ marginTop: '8px' }}>
+                            <thead>
+                              <tr>
+                                <th>Версия</th>
+                                <th>Файл</th>
+                                <th>Размер</th>
+                                <th>Дата</th>
+                                <th></th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {selectedDocument.versions.map((v) => (
+                                <tr key={v.id}>
+                                  <td>v{v.versionNumber}</td>
+                                  <td>{v.fileName}</td>
+                                  <td>{(v.size / 1024).toFixed(0)} КБ</td>
+                                  <td>{new Date(v.uploadedAt).toLocaleString('ru-RU')}</td>
+                                  <td>
+                                    <button type="button" className="ghost-btn" onClick={() => downloadDocumentVersion(v.id, v.fileName)}>
+                                      Скачать
+                                    </button>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        )}
+                      </div>
+                    )}
+
+                    <p className="hint-text" style={{ marginTop: '12px', fontSize: '12px' }}>
+                      Создан: {new Date(selectedDocument.createdAt).toLocaleString('ru-RU')} ·
+                      Обновлён: {new Date(selectedDocument.updatedAt).toLocaleString('ru-RU')}
+                    </p>
+                  </div>
+                )}
+              </div>
+            ) : !showDocumentUploadForm ? (
+              /* Documents table */
+              loadingDocuments ? (
+                <p className="hint-text">Загрузка...</p>
+              ) : documents.length === 0 ? (
+                <p className="hint-text">Документов нет. Загрузите первый документ.</p>
+              ) : (
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Название</th>
+                      <th>Описание</th>
+                      <th>Файл</th>
+                      <th>Версия</th>
+                      <th>Обновлён</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {documents.map((doc) => (
+                      <tr key={doc.id} className="table-row-clickable" onClick={() => openDocument(doc.id)}>
+                        <td style={{ fontWeight: 500 }}>{doc.title}</td>
+                        <td style={{ color: 'var(--text-secondary)', maxWidth: '220px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {doc.description || '—'}
+                        </td>
+                        <td>📄 {doc.fileName}</td>
+                        <td>v{doc.version}</td>
+                        <td>{new Date(doc.updatedAt).toLocaleDateString('ru-RU')}</td>
+                        <td onClick={(e) => e.stopPropagation()}>
+                          <button type="button" className="btn-download" onClick={() => downloadDocument(doc.id, doc.fileName)}>
+                            <i className="dl-icon">↓</i> Скачать
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )
+            ) : null}
+          </section>
         ) : activePage === 'instructions' ? (
           <section>
             <div className="table-head">
@@ -2122,7 +2554,7 @@ export default function App() {
               )}
               {selectedInstruction && !instructionEditMode && (
                 <div style={{ display: 'flex', gap: '8px' }}>
-                  <button type="button" className="ghost-btn" onClick={() => setSelectedInstruction(null)}>← Назад</button>
+                  <button type="button" className="ghost-btn" onClick={() => window.history.back()}>← Назад</button>
                   {(auth.role === 'ADMIN' || auth.role === 'SUPERADMIN') && (
                     <>
                       <button type="button" className="ghost-btn" onClick={startEditInstruction}>Редактировать</button>
@@ -2154,24 +2586,129 @@ export default function App() {
                 </div>
 
                 <div className="form-section-title" style={{ marginTop: '16px' }}>Шаги</div>
-                {instructionForm.steps.map((step, idx) => (
-                  <div key={idx} className="card-form" style={{ marginBottom: '8px', background: 'var(--bg-secondary)' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                      <span style={{ fontWeight: 600 }}>Шаг {idx + 1}</span>
-                      <button type="button" className="ghost-btn" style={{ color: 'var(--red)' }} onClick={() => removeStep(idx)}>Удалить</button>
-                    </div>
-                    <div className="form-grid">
-                      <div className="field field-wide">
-                        <label className="field-label">Название</label>
-                        <input type="text" value={step.title} onChange={(e) => { const steps = [...instructionForm.steps]; steps[idx] = { ...steps[idx], title: e.target.value }; setInstructionForm((f) => ({ ...f, steps })) }} />
+                {instructionForm.steps.map((step, idx) => {
+                  const savedStep = step.id && selectedInstruction
+                    ? selectedInstruction.steps.find((s) => s.id === step.id)
+                    : null
+                  return (
+                    <div
+                      key={idx}
+                      className={[
+                        'card-form',
+                        step.id && focusedStepId === step.id ? 'step-card-focused' : '',
+                        step.id && focusedStepId !== step.id ? 'step-card-pasteable' : ''
+                      ].filter(Boolean).join(' ')}
+                      tabIndex={0}
+                      style={{ marginBottom: '8px', outline: 'none' }}
+                      onClick={(e) => e.currentTarget.focus()}
+                      onFocus={() => step.id && setFocusedStepId(step.id)}
+                      onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setFocusedStepId(null) }}
+                      onPaste={(e) => step.id && handleStepPaste(e, step.id)}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                        <span style={{ fontWeight: 600 }}>Шаг {idx + 1}</span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          {step.id && (
+                            <span className={`step-paste-hint${focusedStepId === step.id ? ' active' : ''}`}>
+                              {focusedStepId === step.id ? '📋 Вставьте фото Ctrl+V' : '🖱 Нажмите для вставки'}
+                            </span>
+                          )}
+                          <button type="button" className="ghost-btn" style={{ color: 'var(--red)' }} onClick={() => removeStep(idx)}>Удалить шаг</button>
+                        </div>
                       </div>
-                      <div className="field field-wide">
-                        <label className="field-label">Комментарий</label>
-                        <textarea rows={3} value={step.comment} onChange={(e) => { const steps = [...instructionForm.steps]; steps[idx] = { ...steps[idx], comment: e.target.value }; setInstructionForm((f) => ({ ...f, steps })) }} />
+                      <div className="form-grid">
+                        <div className="field field-wide">
+                          <label className="field-label">Название</label>
+                          <input type="text" value={step.title} onChange={(e) => { const steps = [...instructionForm.steps]; steps[idx] = { ...steps[idx], title: e.target.value }; setInstructionForm((f) => ({ ...f, steps })) }} />
+                        </div>
+                        <div className="field field-wide">
+                          <label className="field-label">Комментарий</label>
+                          <textarea rows={3} value={step.comment} onChange={(e) => { const steps = [...instructionForm.steps]; steps[idx] = { ...steps[idx], comment: e.target.value }; setInstructionForm((f) => ({ ...f, steps })) }} />
+                        </div>
                       </div>
+
+                      {savedStep ? (
+                        <div style={{ marginTop: '12px' }}>
+                          {/* Photos */}
+                          {savedStep.files.filter((f) => f.fileType === 'PHOTO').length > 0 && (
+                            <div style={{ marginBottom: '10px' }}>
+                              <div className="field-label" style={{ marginBottom: '8px' }}>Фото</div>
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                                {savedStep.files.filter((f) => f.fileType === 'PHOTO').map((f) => (
+                                  <div key={f.id} style={{ position: 'relative', display: 'inline-block' }}>
+                                    {photoUrls[f.id] ? (
+                                      <img
+                                        src={photoUrls[f.id]}
+                                        alt={f.fileName}
+                                        title={f.fileName}
+                                        onClick={() => setLightboxUrl(photoUrls[f.id])}
+                                        style={{ height: '80px', width: 'auto', maxWidth: '140px', objectFit: 'cover', borderRadius: '6px', cursor: 'zoom-in', border: '1px solid var(--border)', display: 'block' }}
+                                      />
+                                    ) : (
+                                      <div style={{ height: '80px', width: '80px', borderRadius: '6px', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-secondary)', fontSize: '12px' }}>…</div>
+                                    )}
+                                    <button
+                                      type="button"
+                                      onClick={() => deleteStepFile(f.id)}
+                                      title="Удалить"
+                                      style={{ position: 'absolute', top: '3px', right: '3px', background: 'rgba(0,0,0,0.55)', color: '#fff', border: 'none', borderRadius: '50%', width: '20px', height: '20px', fontSize: '11px', lineHeight: '20px', textAlign: 'center', cursor: 'pointer', padding: 0 }}
+                                    >✕</button>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* CNC files */}
+                          {savedStep.files.filter((f) => f.fileType === 'CNC_FILE').length > 0 && (
+                            <div style={{ marginBottom: '10px' }}>
+                              <div className="field-label" style={{ marginBottom: '6px' }}>Файлы ЧПУ</div>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                {savedStep.files.filter((f) => f.fileType === 'CNC_FILE').map((f) => (
+                                  <div key={f.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                                    <span style={{ fontFamily: 'monospace', fontSize: '13px' }}>{f.fileName}</span>
+                                    <span className="hint-text">v{f.version}</span>
+                                    <button type="button" className="ghost-btn" onClick={() => downloadFile(f.id, f.fileName)}>↓ Скачать</button>
+                                    {replacingFile && replacingFile.fileId === f.id ? (
+                                      <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                        <span className="hint-text">{replacingFile.fileName}</span>
+                                        <button type="button" className="ghost-btn" onClick={() => replaceStepFile(f.id, replacingFile.file, false)}>Сохранить</button>
+                                        <button type="button" className="ghost-btn" onClick={() => replaceStepFile(f.id, replacingFile.file, true)}>Сохранить v{f.version + 1}</button>
+                                        <button type="button" className="ghost-btn" onClick={() => setReplacingFile(null)}>Отмена</button>
+                                      </span>
+                                    ) : (
+                                      <>
+                                        <label className="ghost-btn" style={{ cursor: 'pointer' }}>
+                                          Заменить
+                                          <input type="file" style={{ display: 'none' }} onChange={(e) => { if (e.target.files[0]) setReplacingFile({ fileId: f.id, file: e.target.files[0], fileName: e.target.files[0].name }) }} />
+                                        </label>
+                                        <button type="button" className="ghost-btn" style={{ color: 'var(--red)' }} onClick={() => deleteStepFile(f.id)}>Удалить</button>
+                                      </>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Upload buttons */}
+                          <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                            <label className="ghost-btn" style={{ cursor: 'pointer' }}>
+                              + Фото
+                              <input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => { if (e.target.files[0]) uploadStepFile(step.id, e.target.files[0], 'PHOTO') }} />
+                            </label>
+                            <label className="ghost-btn" style={{ cursor: 'pointer' }}>
+                              + Файл ЧПУ
+                              <input type="file" style={{ display: 'none' }} onChange={(e) => { if (e.target.files[0]) uploadStepFile(step.id, e.target.files[0], 'CNC_FILE') }} />
+                            </label>
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="hint-text" style={{ marginTop: '8px', fontSize: '12px' }}>Сохраните инструкцию, чтобы добавить файлы к этому шагу</p>
+                      )}
                     </div>
-                  </div>
-                ))}
+                  )
+                })}
                 <button type="button" className="ghost-btn" style={{ marginTop: '8px' }} onClick={addStep}>+ Добавить шаг</button>
 
                 {instructionFormError && <p className="error-text">{instructionFormError}</p>}
@@ -2189,21 +2726,59 @@ export default function App() {
                   <p className="hint-text">Шаги не добавлены</p>
                 ) : (
                   selectedInstruction.steps.map((step) => (
-                    <div key={step.id} className="card-form" style={{ marginBottom: '16px', outline: 'none' }} tabIndex={0} onPaste={(e) => handleStepPaste(e, step.id)}>
-                      <div style={{ fontWeight: 600, marginBottom: step.comment ? '8px' : '12px' }}>Шаг {step.stepNumber}{step.title ? `: ${step.title}` : ''}</div>
+                    <div
+                      key={step.id}
+                      className={[
+                        'card-form',
+                        instructionEditMode && focusedStepId === step.id ? 'step-card-focused' : '',
+                        instructionEditMode && focusedStepId !== step.id ? 'step-card-pasteable' : ''
+                      ].filter(Boolean).join(' ')}
+                      tabIndex={instructionEditMode ? 0 : undefined}
+                      onClick={(e) => { if (instructionEditMode) e.currentTarget.focus() }}
+                      onFocus={() => instructionEditMode && setFocusedStepId(step.id)}
+                      onBlur={() => setFocusedStepId(null)}
+                      onPaste={(e) => handleStepPaste(e, step.id)}
+                      style={{ marginBottom: '16px', outline: 'none' }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: step.comment ? '8px' : '12px' }}>
+                        <span style={{ fontWeight: 600 }}>Шаг {step.stepNumber}{step.title ? `: ${step.title}` : ''}</span>
+                        {instructionEditMode && (
+                          <span className={`step-paste-hint${focusedStepId === step.id ? ' active' : ''}`}>
+                            {focusedStepId === step.id ? '📋 Вставьте фото Ctrl+V' : '🖱 Нажмите для вставки'}
+                          </span>
+                        )}
+                      </div>
                       {step.comment && <p style={{ marginBottom: '12px', color: 'var(--text-secondary)' }}>{step.comment}</p>}
 
                       {/* Photos */}
                       {step.files.filter((f) => f.fileType === 'PHOTO').length > 0 && (
                         <div style={{ marginBottom: '12px' }}>
-                          <div className="field-label" style={{ marginBottom: '6px' }}>Фото</div>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                          <div className="field-label" style={{ marginBottom: '8px' }}>Фото</div>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
                             {step.files.filter((f) => f.fileType === 'PHOTO').map((f) => (
-                              <div key={f.id} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <span>{f.fileName}</span>
-                                <button type="button" className="ghost-btn" onClick={() => downloadFile(f.id, f.fileName)}>Просмотреть</button>
-                                {(auth.role === 'ADMIN' || auth.role === 'SUPERADMIN') && (
-                                  <button type="button" className="ghost-btn" style={{ color: 'var(--red)' }} onClick={() => deleteStepFile(f.id)}>Удалить</button>
+                              <div key={f.id} style={{ position: 'relative', display: 'inline-block' }}>
+                                {photoUrls[f.id] ? (
+                                  <div className="photo-thumb-wrap" onClick={() => setLightboxUrl(photoUrls[f.id])}>
+                                    <img
+                                      src={photoUrls[f.id]}
+                                      alt={f.fileName}
+                                      title={f.fileName}
+                                      style={{ height: '110px', width: 'auto', maxWidth: '180px', objectFit: 'cover', display: 'block', border: '1px solid var(--border)' }}
+                                    />
+                                    <div className="photo-zoom-overlay">
+                                      <span className="photo-zoom-icon">🔍</span>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div style={{ height: '110px', width: '110px', borderRadius: '6px', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-secondary)', fontSize: '20px' }}>⋯</div>
+                                )}
+                                {(auth.role === 'ADMIN' || auth.role === 'SUPERADMIN') && instructionEditMode && (
+                                  <button
+                                    type="button"
+                                    onClick={() => deleteStepFile(f.id)}
+                                    title="Удалить"
+                                    style={{ position: 'absolute', top: '3px', right: '3px', background: 'rgba(0,0,0,0.55)', color: '#fff', border: 'none', borderRadius: '50%', width: '20px', height: '20px', fontSize: '11px', lineHeight: '20px', textAlign: 'center', cursor: 'pointer', padding: 0, zIndex: 1 }}
+                                  >✕</button>
                                 )}
                               </div>
                             ))}
@@ -2217,11 +2792,13 @@ export default function App() {
                           <div className="field-label" style={{ marginBottom: '6px' }}>Файлы ЧПУ</div>
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                             {step.files.filter((f) => f.fileType === 'CNC_FILE').map((f) => (
-                              <div key={f.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                                <span style={{ fontFamily: 'monospace', fontSize: '13px' }}>{f.fileName}</span>
-                                <span className="hint-text">v{f.version}</span>
-                                <button type="button" className="ghost-btn" onClick={() => downloadFile(f.id, f.fileName)}>↓ Скачать</button>
-                                {(auth.role === 'ADMIN' || auth.role === 'SUPERADMIN') && (
+                              <div key={f.id} className="cnc-file-row">
+                                <span style={{ fontFamily: 'monospace', fontSize: '13px', flex: 1 }}>📂 {f.fileName}</span>
+                                <span className="hint-text">v{f.version} · {(f.size / 1024).toFixed(0)} КБ</span>
+                                <button type="button" className="btn-download" onClick={() => downloadFile(f.id, f.fileName)}>
+                                  <i className="dl-icon">↓</i> Скачать
+                                </button>
+                                {(auth.role === 'ADMIN' || auth.role === 'SUPERADMIN') && instructionEditMode && (
                                   <>
                                     {replacingFile && replacingFile.fileId === f.id ? (
                                       <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -2248,7 +2825,7 @@ export default function App() {
                       )}
 
                       {/* Upload buttons for admin */}
-                      {(auth.role === 'ADMIN' || auth.role === 'SUPERADMIN') && (
+                      {(auth.role === 'ADMIN' || auth.role === 'SUPERADMIN') && instructionEditMode && (
                         <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
                           <label className="ghost-btn" style={{ cursor: 'pointer' }}>
                             + Фото
@@ -2294,7 +2871,25 @@ export default function App() {
                 </div>
               )
             )}
-          </section>
+          {/* Lightbox */}
+          {lightboxUrl && (
+            <div
+              onClick={() => setLightboxUrl(null)}
+              style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'zoom-out' }}
+            >
+              <img
+                src={lightboxUrl}
+                alt=""
+                onClick={(e) => e.stopPropagation()}
+                style={{ maxWidth: '92vw', maxHeight: '92vh', objectFit: 'contain', borderRadius: '8px', boxShadow: '0 8px 40px rgba(0,0,0,0.6)', cursor: 'default' }}
+              />
+              <button
+                onClick={() => setLightboxUrl(null)}
+                style={{ position: 'fixed', top: '16px', right: '20px', background: 'none', border: 'none', color: '#fff', fontSize: '28px', cursor: 'pointer', lineHeight: 1 }}
+              >✕</button>
+            </div>
+          )}
+        </section>
         ) : activePage === 'settings' ? (
           <section>
             <h2>Настройки</h2>
