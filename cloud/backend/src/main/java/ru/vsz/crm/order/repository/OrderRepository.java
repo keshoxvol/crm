@@ -8,7 +8,7 @@ import ru.vsz.crm.order.domain.BoatOrder;
 
 public interface OrderRepository extends JpaRepository<BoatOrder, Long>, JpaSpecificationExecutor<BoatOrder> {
 
-    @Modifying
+    @Modifying(clearAutomatically = true)
     @Query("UPDATE BoatOrder o SET o.clientId = :masterId WHERE o.clientId = :duplicateId")
     void reassignClientId(Long duplicateId, Long masterId);
 }

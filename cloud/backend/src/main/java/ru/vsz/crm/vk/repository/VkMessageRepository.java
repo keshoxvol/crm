@@ -27,7 +27,16 @@ public interface VkMessageRepository extends JpaRepository<VkMessage, Long> {
             """)
     List<Long> findClientIdsWithLastMessageIn();
 
-    @Modifying
+    // Удаляем сообщения дубля, чей vk_msg_id уже есть у мастера (иначе конфликт уникального индекса)
+    @Modifying(clearAutomatically = true)
+    @Query("""
+            DELETE FROM VkMessage vm
+            WHERE vm.clientId = :duplicateId
+              AND vm.vkMsgId IN (SELECT vm2.vkMsgId FROM VkMessage vm2 WHERE vm2.clientId = :masterId)
+            """)
+    void deleteConflictingMessages(Long duplicateId, Long masterId);
+
+    @Modifying(clearAutomatically = true)
     @Query("UPDATE VkMessage vm SET vm.clientId = :masterId WHERE vm.clientId = :duplicateId")
     void reassignClientId(Long duplicateId, Long masterId);
 }

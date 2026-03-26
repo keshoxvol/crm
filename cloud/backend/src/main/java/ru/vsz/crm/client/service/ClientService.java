@@ -204,11 +204,15 @@ public class ClientService {
 
         // Переносим связанные данные
         orderRepository.reassignClientId(duplicateId, masterId);
+        // VK: сначала удаляем сообщения с конфликтным vk_msg_id, потом переносим остальные
+        vkMessageRepository.deleteConflictingMessages(duplicateId, masterId);
         vkMessageRepository.reassignClientId(duplicateId, masterId);
         clientChangeLogRepository.reassignClientId(duplicateId, masterId);
 
         // Удаляем dialog state дубля (если есть), затем сам дубль
-        vkDialogStateRepository.deleteById(duplicateId);
+        if (vkDialogStateRepository.existsById(duplicateId)) {
+            vkDialogStateRepository.deleteById(duplicateId);
+        }
         clientRepository.deleteById(duplicateId);
 
         appendChange(masterId, "MERGED", "client",

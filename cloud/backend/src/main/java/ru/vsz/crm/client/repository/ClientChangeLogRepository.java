@@ -10,7 +10,7 @@ public interface ClientChangeLogRepository extends JpaRepository<ClientChangeLog
 
     List<ClientChangeLog> findAllByClientIdOrderByChangedAtDesc(Long clientId);
 
-    @Modifying
+    @Modifying(clearAutomatically = true)
     @Query("UPDATE ClientChangeLog l SET l.clientId = :masterId WHERE l.clientId = :duplicateId")
     void reassignClientId(Long duplicateId, Long masterId);
 }

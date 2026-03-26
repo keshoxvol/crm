@@ -2,6 +2,8 @@ package ru.vsz.crm.client.api;
 
 import java.time.OffsetDateTime;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -13,6 +15,8 @@ import ru.vsz.crm.user.service.UserNotFoundException;
 
 @RestControllerAdvice
 public class ApiExceptionHandler {
+
+    private static final Logger log = LoggerFactory.getLogger(ApiExceptionHandler.class);
 
     @ExceptionHandler(ClientNotFoundException.class)
     public ResponseEntity<Map<String, Object>> handleNotFound(ClientNotFoundException exception) {
@@ -32,9 +36,18 @@ public class ApiExceptionHandler {
 
     @ExceptionHandler(DataIntegrityViolationException.class)
     public ResponseEntity<Map<String, Object>> handleDataConflict(DataIntegrityViolationException exception) {
+        log.error("DataIntegrityViolation: {}", exception.getMostSpecificCause().getMessage());
         return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
                 "error", "conflict",
                 "message", "Entity conflict",
+                "timestamp", OffsetDateTime.now().toString()));
+    }
+
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<Map<String, Object>> handleIllegalArgument(IllegalArgumentException exception) {
+        return ResponseEntity.badRequest().body(Map.of(
+                "error", "bad_request",
+                "message", exception.getMessage(),
                 "timestamp", OffsetDateTime.now().toString()));
     }
 
