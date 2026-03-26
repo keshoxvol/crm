@@ -1101,3 +1101,79 @@ td {
   background: var(--color-bg-dark);
   border: 1px solid var(--color-border-sub);
 }
+
+/* ── Статусы заявок — цветные чипы ── */
+.order-status-chip {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  letter-spacing: 0.3px;
+}
+.order-status-NEW        { background: #1e2a3a; color: #5b9bd5; border: 1px solid #2b4060; }
+.order-status-QUALIFICATION { background: #1e2836; color: #4da6e8; border: 1px solid #254566; }
+.order-status-ENGAGEMENT { background: #1e2e20; color: #4cad66; border: 1px solid #264d2e; }
+.order-status-PROPOSAL   { background: #2e2a14; color: #d4a017; border: 1px solid #5a4a10; }
+.order-status-DEPOSIT    { background: #2e1e14; color: #e8851a; border: 1px solid #6a3a10; }
+.order-status-PRODUCTION { background: #1e1428; color: #9b6dd4; border: 1px solid #3a2258; }
+.order-status-DELIVERED  { background: #14281a; color: #3dc470; border: 1px solid #1a5228; }
+.order-status-CANCELLED  { background: #281414; color: #c04040; border: 1px solid #521a1a; }
+
+/* ── Воронка продаж в форме заявки ── */
+.order-funnel {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  margin-bottom: 16px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+.funnel-step {
+  flex: 1;
+  min-width: 80px;
+  padding: 8px 6px;
+  font-size: 11px;
+  font-weight: 500;
+  text-align: center;
+  background: var(--color-bg-dark);
+  border: 1px solid var(--color-border);
+  border-right: none;
+  color: var(--color-text-dim);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  white-space: nowrap;
+  position: relative;
+}
+.funnel-step:first-child { border-radius: 8px 0 0 8px; }
+.funnel-step:hover:not(.funnel-current):not(.funnel-past) {
+  background: var(--color-bg-surface);
+  color: var(--color-text-sub);
+}
+.funnel-past {
+  background: #1a2a1a;
+  color: #3d8a50;
+  border-color: #1f3d24;
+}
+.funnel-current {
+  background: var(--color-accent-bg);
+  color: var(--color-accent);
+  border-color: var(--color-accent-dim);
+  font-weight: 700;
+}
+.funnel-cancel-btn {
+  flex: none;
+  min-width: 36px;
+  padding: 8px 10px;
+  border-right: 1px solid var(--color-border);
+  border-radius: 0 8px 8px 0;
+  color: var(--color-text-dim);
+  background: var(--color-bg-dark);
+}
+.funnel-cancel-btn:hover { background: #2a1414; color: #c04040; border-color: #521a1a; }
+.funnel-current-cancel {
+  background: #281414 !important;
+  color: #c04040 !important;
+  border-color: #521a1a !important;
+}

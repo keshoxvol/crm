@@ -64,15 +64,19 @@ const CLIENT_MODEL_LABELS = {
   UNDEFINED: 'Не определён'
 }
 
-const ORDER_STATUS_OPTIONS = ['NEW', 'IN_PROGRESS', 'DEPOSIT_PAID', 'COMPLETED', 'CANCELLED']
+const ORDER_STATUS_OPTIONS = ['NEW', 'QUALIFICATION', 'ENGAGEMENT', 'PROPOSAL', 'DEPOSIT', 'PRODUCTION', 'DELIVERED', 'CANCELLED']
+const ORDER_STATUS_FUNNEL = ['NEW', 'QUALIFICATION', 'ENGAGEMENT', 'PROPOSAL', 'DEPOSIT', 'PRODUCTION', 'DELIVERED']
 const ORDER_SOURCE_OPTIONS = ['WEBSITE', 'VK', 'AVITO', 'PHONE', 'MANUAL']
 const ORDER_MODEL_OPTIONS = ['LOS_400', 'LOS_400_GX', 'UNDEFINED']
 
 const ORDER_STATUS_LABELS = {
   NEW: 'Новая',
-  IN_PROGRESS: 'В работе',
-  DEPOSIT_PAID: 'Аванс внесён',
-  COMPLETED: 'Выполнена',
+  QUALIFICATION: 'Квалификация',
+  ENGAGEMENT: 'Вовлечение',
+  PROPOSAL: 'Предложение',
+  DEPOSIT: 'Бронь',
+  PRODUCTION: 'Производство',
+  DELIVERED: 'Передана',
   CANCELLED: 'Отменена'
 }
 
@@ -1798,7 +1802,7 @@ export default function App() {
                             <td>{new Date(order.createdAt).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })}</td>
                             <td>{labelOf(order.source, ORDER_SOURCE_LABELS)}</td>
                             <td>{labelOf(order.model, ORDER_MODEL_LABELS)}</td>
-                            <td>{labelOf(order.status, ORDER_STATUS_LABELS)}</td>
+                            <td><span className={`order-status-chip order-status-${order.status}`}>{labelOf(order.status, ORDER_STATUS_LABELS)}</span></td>
                             <td>{order.depositAmount ? `${Number(order.depositAmount).toLocaleString('ru-RU')} ₽` : '-'}</td>
                           </tr>
                         ))}
@@ -1979,6 +1983,33 @@ export default function App() {
                     <h3>Редактировать заявку #{editOrderForm.id}</h3>
                     <button type="button" className="ghost-btn" onClick={() => setEditOrderForm({ ...EMPTY_EDIT_ORDER_FORM })}>Закрыть</button>
                   </div>
+                  {/* Визуальная воронка */}
+                  <div className="order-funnel">
+                    {ORDER_STATUS_FUNNEL.map((s) => {
+                      const idx = ORDER_STATUS_FUNNEL.indexOf(s)
+                      const curIdx = ORDER_STATUS_FUNNEL.indexOf(editOrderForm.status)
+                      const isPast = curIdx !== -1 && idx < curIdx
+                      const isCurrent = editOrderForm.status === s
+                      return (
+                        <button
+                          key={s}
+                          type="button"
+                          className={`funnel-step${isPast ? ' funnel-past' : ''}${isCurrent ? ' funnel-current' : ''}`}
+                          onClick={() => setEditOrderForm((p) => ({ ...p, status: s }))}
+                          title={ORDER_STATUS_LABELS[s]}
+                        >
+                          {ORDER_STATUS_LABELS[s]}
+                        </button>
+                      )
+                    })}
+                    <button
+                      type="button"
+                      className={`funnel-step funnel-cancel-btn${editOrderForm.status === 'CANCELLED' ? ' funnel-current-cancel' : ''}`}
+                      onClick={() => setEditOrderForm((p) => ({ ...p, status: 'CANCELLED' }))}
+                    >
+                      ✕
+                    </button>
+                  </div>
                   <div className="form-grid">
                     <div className="field field-wide">
                       <span className="field-label">Клиент</span>
@@ -2031,12 +2062,6 @@ export default function App() {
                       <span className="field-label">Источник</span>
                       <select value={editOrderForm.source} onChange={(e) => setEditOrderForm((p) => ({ ...p, source: e.target.value }))}>
                         {ORDER_SOURCE_OPTIONS.map((v) => <option key={v} value={v}>{labelOf(v, ORDER_SOURCE_LABELS)}</option>)}
-                      </select>
-                    </label>
-                    <label className="field">
-                      <span className="field-label">Статус</span>
-                      <select value={editOrderForm.status} onChange={(e) => setEditOrderForm((p) => ({ ...p, status: e.target.value }))}>
-                        {ORDER_STATUS_OPTIONS.map((v) => <option key={v} value={v}>{labelOf(v, ORDER_STATUS_LABELS)}</option>)}
                       </select>
                     </label>
                     <label className="field">
@@ -2101,7 +2126,7 @@ export default function App() {
                         <td>{order.clientName || order.contactName || '-'}</td>
                         <td>{order.contactPhone || '-'}</td>
                         <td>{labelOf(order.model, ORDER_MODEL_LABELS)}</td>
-                        <td>{labelOf(order.status, ORDER_STATUS_LABELS)}</td>
+                        <td><span className={`order-status-chip order-status-${order.status}`}>{labelOf(order.status, ORDER_STATUS_LABELS)}</span></td>
                         <td>{order.desiredColor || '-'}</td>
                         <td>{order.depositAmount ? `${Number(order.depositAmount).toLocaleString('ru-RU')} ₽` : '-'}</td>
                       </tr>
