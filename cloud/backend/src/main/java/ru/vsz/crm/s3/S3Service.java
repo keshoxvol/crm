@@ -65,11 +65,20 @@ public class S3Service {
     }
 
     public String presignedDownloadUrl(String key, Duration expiration) {
+        return presignedDownloadUrl(key, expiration, null);
+    }
+
+    public String presignedDownloadUrl(String key, Duration expiration, String fileName) {
         requireConfigured();
+        var getReq = GetObjectRequest.builder().bucket(bucket).key(key);
+        if (fileName != null && !fileName.isBlank()) {
+            String safe = fileName.replaceAll("[\"\\\\]", "_");
+            getReq.responseContentDisposition("attachment; filename=\"" + safe + "\"");
+        }
         return presigner.presignGetObject(
                 GetObjectPresignRequest.builder()
                         .signatureDuration(expiration)
-                        .getObjectRequest(GetObjectRequest.builder().bucket(bucket).key(key).build())
+                        .getObjectRequest(getReq.build())
                         .build())
                 .url().toString();
     }

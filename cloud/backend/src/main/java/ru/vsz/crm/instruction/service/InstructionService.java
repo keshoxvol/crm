@@ -147,7 +147,7 @@ public class InstructionService {
     public String getDownloadUrl(Long fileId) {
         var stepFile = fileRepository.findById(fileId)
                 .orElseThrow(() -> new IllegalArgumentException("Файл не найден: " + fileId));
-        return s3Service.presignedDownloadUrl(stepFile.getS3Key(), Duration.ofMinutes(30));
+        return s3Service.presignedDownloadUrl(stepFile.getS3Key(), Duration.ofMinutes(30), stepFile.getFileName());
     }
 
     private void applySteps(Instruction instruction, List<SaveInstructionRequest.StepRequest> stepRequests) {

@@ -114,14 +114,14 @@ public class DocumentService {
     public String getDownloadUrl(Long id) {
         var doc = documentRepository.findById(id)
                 .orElseThrow(() -> new DocumentNotFoundException(id));
-        return s3Service.presignedDownloadUrl(doc.getS3Key(), Duration.ofMinutes(30));
+        return s3Service.presignedDownloadUrl(doc.getS3Key(), Duration.ofMinutes(30), doc.getFileName());
     }
 
     @Transactional(readOnly = true)
     public String getVersionDownloadUrl(Long versionId) {
         var ver = versionRepository.findById(versionId)
                 .orElseThrow(() -> new IllegalArgumentException("Версия не найдена: " + versionId));
-        return s3Service.presignedDownloadUrl(ver.getS3Key(), Duration.ofMinutes(30));
+        return s3Service.presignedDownloadUrl(ver.getS3Key(), Duration.ofMinutes(30), ver.getFileName());
     }
 
     private String buildS3Key(String originalName) {
