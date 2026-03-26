@@ -308,6 +308,11 @@ export default function App() {
   const [createClientForm, setCreateClientForm] = useState({ ...EMPTY_CREATE_CLIENT_FORM })
 
   const [editClientForm, setEditClientForm] = useState({ ...EMPTY_EDIT_CLIENT_FORM })
+  const [mergeSearch, setMergeSearch] = useState('')
+  const [mergeResults, setMergeResults] = useState([])
+  const [mergeTarget, setMergeTarget] = useState(null) // клиент-дубль
+  const [mergeLoading, setMergeLoading] = useState(false)
+  const [mergeError, setMergeError] = useState('')
 
   const availablePages = useMemo(() => {
     if (!auth?.role) return []
@@ -795,6 +800,46 @@ export default function App() {
     if (client.vkProfile) {
       loadVkMessages(client.id)
     }
+  }
+
+  function searchMergeCandidates(q) {
+    setMergeSearch(q)
+    setMergeTarget(null)
+    setMergeError('')
+    if (!q || q.trim().length < 2) { setMergeResults([]); return }
+    authFetch(`/api/clients?q=${encodeURIComponent(q.trim())}`)
+      .then((r) => r.json())
+      .then((data) => {
+        setMergeResults((data || []).filter((c) => String(c.id) !== editClientForm.id))
+      })
+      .catch(() => setMergeResults([]))
+  }
+
+  function executeMerge() {
+    if (!mergeTarget) return
+    if (!window.confirm(
+      `Объединить клиентов?\n\nМастер: #${editClientForm.id} ${editClientForm.fullName || editClientForm.phone}\nДубль (будет удалён): #${mergeTarget.id} ${mergeTarget.fullName || mergeTarget.phone}\n\nЭто действие необратимо.`
+    )) return
+    setMergeLoading(true)
+    setMergeError('')
+    authFetch(`/api/clients/${editClientForm.id}/merge`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ duplicateId: mergeTarget.id })
+    })
+      .then((r) => {
+        if (!r.ok) return r.json().then((e) => { throw new Error(e.message || 'merge_failed') })
+        return r.json()
+      })
+      .then((merged) => {
+        setMergeSearch('')
+        setMergeResults([])
+        setMergeTarget(null)
+        loadClients()
+        selectClientForEdit(merged)
+      })
+      .catch((e) => setMergeError(e.message))
+      .finally(() => setMergeLoading(false))
   }
 
   function syncAllVkConversations() {
@@ -1741,6 +1786,60 @@ export default function App() {
                   <button type="submit">Сохранить</button>
                   {editClientError ? <p className="error-text">{editClientError}</p> : null}
                 </form>
+
+                {/* ── Объединение дублей ── */}
+                <div className="card-form inline-form" style={{ marginTop: '8px' }}>
+                  <div className="inline-form-head">
+                    <h3>Объединить с дублём</h3>
+                  </div>
+                  <p style={{ color: 'var(--color-text-sub)', fontSize: '13px', marginBottom: '10px' }}>
+                    Найдите дубль — все его заявки и переписка перейдут к текущему клиенту, дубль будет удалён.
+                  </p>
+                  <input
+                    placeholder="Поиск дубля по имени или телефону..."
+                    value={mergeSearch}
+                    onChange={(e) => searchMergeCandidates(e.target.value)}
+                    style={{ marginBottom: '8px' }}
+                  />
+                  {mergeResults.length > 0 && !mergeTarget && (
+                    <div className="client-search-results">
+                      {mergeResults.map((c) => (
+                        <div
+                          key={c.id}
+                          className="client-search-item"
+                          onClick={() => { setMergeTarget(c); setMergeResults([]) }}
+                        >
+                          <span className="client-search-name">#{c.id} {c.fullName || '(без имени)'}</span>
+                          <span className="client-search-phone">{c.phone || c.vkProfile || ''}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {mergeTarget && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', marginTop: '4px' }}>
+                      <div style={{ flex: 1, padding: '8px 12px', background: 'var(--color-bg-dark)', borderRadius: '8px', border: '1px solid var(--color-error)', fontSize: '13px' }}>
+                        <strong style={{ color: 'var(--color-error)' }}>Дубль (будет удалён):</strong>{' '}
+                        #{mergeTarget.id} {mergeTarget.fullName || ''} {mergeTarget.phone || mergeTarget.vkProfile || ''}
+                      </div>
+                      <button
+                        type="button"
+                        className="ghost-btn"
+                        onClick={() => { setMergeTarget(null); setMergeSearch(''); setMergeError('') }}
+                      >
+                        Отмена
+                      </button>
+                      <button
+                        type="button"
+                        style={{ background: 'var(--color-error)', color: '#fff', border: 'none' }}
+                        disabled={mergeLoading}
+                        onClick={executeMerge}
+                      >
+                        {mergeLoading ? 'Объединение...' : 'Объединить'}
+                      </button>
+                    </div>
+                  )}
+                  {mergeError && <p className="error-text" style={{ marginTop: '8px' }}>{mergeError}</p>}
+                </div>
 
                 {editClientForm.vkProfile ? (
                   <div className="card-form inline-form vk-dialog-wrap">

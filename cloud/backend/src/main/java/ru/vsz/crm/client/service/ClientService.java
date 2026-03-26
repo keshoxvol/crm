@@ -21,16 +21,30 @@ import ru.vsz.crm.client.domain.ClientStatus;
 import ru.vsz.crm.client.domain.ClientTemperature;
 import ru.vsz.crm.client.repository.ClientChangeLogRepository;
 import ru.vsz.crm.client.repository.ClientRepository;
+import ru.vsz.crm.order.repository.OrderRepository;
+import ru.vsz.crm.vk.repository.VkDialogStateRepository;
+import ru.vsz.crm.vk.repository.VkMessageRepository;
 
 @Service
 public class ClientService {
 
     private final ClientRepository clientRepository;
     private final ClientChangeLogRepository clientChangeLogRepository;
+    private final OrderRepository orderRepository;
+    private final VkMessageRepository vkMessageRepository;
+    private final VkDialogStateRepository vkDialogStateRepository;
 
-    public ClientService(ClientRepository clientRepository, ClientChangeLogRepository clientChangeLogRepository) {
+    public ClientService(
+            ClientRepository clientRepository,
+            ClientChangeLogRepository clientChangeLogRepository,
+            OrderRepository orderRepository,
+            VkMessageRepository vkMessageRepository,
+            VkDialogStateRepository vkDialogStateRepository) {
         this.clientRepository = clientRepository;
         this.clientChangeLogRepository = clientChangeLogRepository;
+        this.orderRepository = orderRepository;
+        this.vkMessageRepository = vkMessageRepository;
+        this.vkDialogStateRepository = vkDialogStateRepository;
     }
 
     @Transactional
@@ -144,6 +158,73 @@ public class ClientService {
         return clientChangeLogRepository.findAllByClientIdOrderByChangedAtDesc(clientId).stream()
                 .map(this::toHistoryResponse)
                 .toList();
+    }
+
+    /**
+     * Объединяет дубль (duplicateId) в мастер (masterId):
+     * — заполняет пустые поля мастера данными из дубля
+     * — переносит все заявки, сообщения ВК и историю изменений
+     * — удаляет дубль
+     */
+    @Transactional
+    public ClientResponse merge(Long masterId, Long duplicateId) {
+        if (masterId.equals(duplicateId)) {
+            throw new IllegalArgumentException("Нельзя объединить клиента с самим собой");
+        }
+        Client master = clientRepository.findById(masterId)
+                .orElseThrow(() -> new ClientNotFoundException(masterId));
+        Client duplicate = clientRepository.findById(duplicateId)
+                .orElseThrow(() -> new ClientNotFoundException(duplicateId));
+
+        // Дополняем мастера недостающими данными из дубля
+        if (master.getFullName() == null && duplicate.getFullName() != null) {
+            master.setFullName(duplicate.getFullName());
+        }
+        if (master.getPhone() == null && duplicate.getPhone() != null) {
+            master.setPhone(duplicate.getPhone());
+        }
+        if (master.getVkProfile() == null && duplicate.getVkProfile() != null) {
+            master.setVkProfile(duplicate.getVkProfile());
+        }
+        if (master.getVkId() == null && duplicate.getVkId() != null) {
+            master.setVkId(duplicate.getVkId());
+        }
+        if ((master.getComment() == null || master.getComment().isBlank()) && duplicate.getComment() != null) {
+            master.setComment(duplicate.getComment());
+        }
+        // Берём более раннюю дату первого контакта
+        if (duplicate.getFirstContactAt() != null &&
+                (master.getFirstContactAt() == null || duplicate.getFirstContactAt().isBefore(master.getFirstContactAt()))) {
+            master.setFirstContactAt(duplicate.getFirstContactAt());
+        }
+        // Берём более горячую температуру
+        if (temperatureRank(duplicate.getTemperature()) > temperatureRank(master.getTemperature())) {
+            master.setTemperature(duplicate.getTemperature());
+        }
+
+        // Переносим связанные данные
+        orderRepository.reassignClientId(duplicateId, masterId);
+        vkMessageRepository.reassignClientId(duplicateId, masterId);
+        clientChangeLogRepository.reassignClientId(duplicateId, masterId);
+
+        // Удаляем dialog state дубля (если есть), затем сам дубль
+        vkDialogStateRepository.deleteById(duplicateId);
+        clientRepository.deleteById(duplicateId);
+
+        appendChange(masterId, "MERGED", "client",
+                "duplicate#" + duplicateId,
+                "merged into master#" + masterId);
+
+        return toResponse(clientRepository.save(master));
+    }
+
+    private int temperatureRank(ClientTemperature t) {
+        if (t == null) return 0;
+        return switch (t) {
+            case COLD -> 1;
+            case WARM -> 2;
+            case HOT  -> 3;
+        };
     }
 
     private ClientResponse toResponse(Client client) {

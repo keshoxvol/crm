@@ -3,6 +3,7 @@ package ru.vsz.crm.vk.repository;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import ru.vsz.crm.vk.domain.VkMessage;
 
@@ -25,4 +26,8 @@ public interface VkMessageRepository extends JpaRepository<VkMessage, Long> {
               AND vm.sentAt = (SELECT MAX(vm2.sentAt) FROM VkMessage vm2 WHERE vm2.clientId = vm.clientId)
             """)
     List<Long> findClientIdsWithLastMessageIn();
+
+    @Modifying
+    @Query("UPDATE VkMessage vm SET vm.clientId = :masterId WHERE vm.clientId = :duplicateId")
+    void reassignClientId(Long duplicateId, Long masterId);
 }

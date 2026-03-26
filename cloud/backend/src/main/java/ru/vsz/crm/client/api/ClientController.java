@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import ru.vsz.crm.client.api.dto.ClientChangeLogResponse;
+import ru.vsz.crm.client.api.dto.MergeClientsRequest;
 import ru.vsz.crm.client.api.dto.UpdateClientRequest;
 import ru.vsz.crm.client.domain.ClientModelInterest;
 import ru.vsz.crm.client.api.dto.ClientResponse;
@@ -61,5 +62,10 @@ public class ClientController {
     @GetMapping("/{id}/history")
     public List<ClientChangeLogResponse> history(@PathVariable Long id) {
         return clientService.getHistory(id);
+    }
+
+    @PostMapping("/{masterId}/merge")
+    public ClientResponse merge(@PathVariable Long masterId, @Valid @RequestBody MergeClientsRequest request) {
+        return clientService.merge(masterId, request.duplicateId());
     }
 }
