@@ -19,6 +19,8 @@ spring:
 
 server:
   port: ${SERVER_PORT:18080}
+  tomcat:
+    max-http-form-post-size: 200MB
 
 vk:
   community-token: ${VK_COMMUNITY_TOKEN:}
