@@ -30,7 +30,6 @@ import ru.vsz.crm.client.service.ClientNotFoundException;
 import ru.vsz.crm.order.domain.BoatModel;
 import ru.vsz.crm.order.service.OrderService;
 import ru.vsz.crm.ai.AiService;
-import ru.vsz.crm.telegram.TelegramService;
 import ru.vsz.crm.vk.api.dto.VkCallbackEvent;
 import ru.vsz.crm.vk.api.dto.VkDialogSummary;
 import ru.vsz.crm.vk.api.dto.VkMessageResponse;
@@ -68,7 +67,6 @@ public class VkService {
     private final ClientRepository clientRepository;
     private final VkSseService vkSseService;
     private final OrderService orderService;
-    private final TelegramService telegramService;
     private final AiService aiService;
     private final RestClient restClient;
 
@@ -80,7 +78,6 @@ public class VkService {
             ClientRepository clientRepository,
             VkSseService vkSseService,
             OrderService orderService,
-            TelegramService telegramService,
             AiService aiService) {
         this.communityToken = communityToken;
         this.communityId = communityId;
@@ -89,7 +86,6 @@ public class VkService {
         this.clientRepository = clientRepository;
         this.vkSseService = vkSseService;
         this.orderService = orderService;
-        this.telegramService = telegramService;
         this.aiService = aiService;
         this.restClient = RestClient.create();
     }
@@ -449,27 +445,7 @@ public class VkService {
             return;
         }
 
-        // 3. Вопрос от пользователя — уведомляем менеджера в Telegram
-        var client = clientRepository.findById(clientId).orElse(null);
-        String clientName = client != null ? client.getFullName() : "Неизвестный";
-        String vkLink = client != null && client.getVkProfile() != null
-                ? "vk.com/" + client.getVkProfile() : String.valueOf(vkUserId);
-
-        StringBuilder notification = new StringBuilder();
-        notification.append(String.format("💬 Новое сообщение в ВК\n%s (%s):\n\n«%s»",
-                clientName, vkLink, text));
-
-        if (aiService.isConfigured()) {
-            try {
-                var messages = getMessages(clientId);
-                String analysis = aiService.analyzeClient(messages);
-                notification.append("\n\n─────────────\n").append(analysis);
-            } catch (Exception e) {
-                log.warn("AI-анализ недоступен для клиента {}: {}", clientId, e.getMessage());
-            }
-        }
-
-        telegramService.sendMessage(notification.toString());
+        // 3. Уведомление обрабатывает UnansweredMessageScheduler (раз в 60 сек)
     }
 
     private void sendBotMessage(Long clientId, long vkUserId, String text, String keyboard) {
