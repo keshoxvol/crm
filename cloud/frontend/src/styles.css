@@ -1177,3 +1177,125 @@ td {
   color: #c04040 !important;
   border-color: #521a1a !important;
 }
+
+/* ── Diagrams page ─────────────────────────────────── */
+.page-diagrams {
+  padding: 0;
+  overflow: hidden;
+}
+
+.diagram-page {
+  display: flex;
+  height: calc(100vh - 160px);
+  min-height: 520px;
+}
+
+.diagram-canvas {
+  flex: 1;
+  min-width: 0;
+}
+
+.diagram-sidebar {
+  width: 260px;
+  min-width: 260px;
+  border-left: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  background: var(--color-bg-dark);
+  overflow-y: auto;
+}
+
+.diagram-create-btn {
+  width: 100%;
+  padding: 10px;
+  font-size: 14px;
+}
+
+.diagram-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.diagram-list-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background 0.15s;
+  gap: 6px;
+}
+
+.diagram-list-item:hover {
+  background: var(--color-bg-surface);
+}
+
+.diagram-list-item.active {
+  background: var(--color-accent-bg);
+  border-color: var(--color-accent-dim);
+}
+
+.diagram-list-name {
+  flex: 1;
+  font-size: 14px;
+  color: var(--color-text-main);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.diagram-list-item.active .diagram-list-name {
+  color: var(--color-accent);
+}
+
+.diagram-list-actions {
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.diagram-list-item:hover .diagram-list-actions {
+  opacity: 1;
+}
+
+.diagram-icon-btn {
+  background: none;
+  border: none;
+  color: var(--color-text-dim);
+  cursor: pointer;
+  padding: 2px 5px;
+  border-radius: 4px;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.diagram-icon-btn:hover {
+  background: var(--color-bg-base);
+  color: var(--color-text-main);
+}
+
+.diagram-icon-btn-danger:hover {
+  color: #e74c3c;
+}
+
+.diagram-icon-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.diagram-rename-input {
+  flex: 1;
+  background: var(--color-bg-base);
+  border: 1px solid var(--color-accent-dim);
+  border-radius: 4px;
+  color: var(--color-text-main);
+  padding: 2px 6px;
+  font-size: 14px;
+  outline: none;
+}

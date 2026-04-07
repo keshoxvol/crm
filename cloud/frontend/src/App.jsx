@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import DiagramPage from './DiagramPage.jsx'
 
 const ALL_PAGES = [
   { key: 'clients', label: 'Клиенты' },
@@ -7,14 +8,15 @@ const ALL_PAGES = [
   { key: 'reports', label: 'Отчёты' },
   { key: 'documents', label: 'Документы' },
   { key: 'instructions', label: 'Инструкции' },
+  { key: 'diagrams', label: 'Диаграммы' },
   { key: 'users', label: 'Пользователи' },
   { key: 'settings', label: 'Настройки' }
 ]
 
 const ROLE_PAGES = {
   SUPERADMIN: ALL_PAGES.map((p) => p.key),
-  ADMIN: ['clients', 'orders', 'dialogs', 'reports', 'documents', 'instructions', 'users', 'settings'],
-  EMPLOYEE: ['clients', 'orders', 'dialogs', 'documents', 'instructions'],
+  ADMIN: ['clients', 'orders', 'dialogs', 'reports', 'documents', 'instructions', 'diagrams', 'users', 'settings'],
+  EMPLOYEE: ['clients', 'orders', 'dialogs', 'documents', 'instructions', 'diagrams'],
   OPERATOR: ['instructions']
 }
 
@@ -1506,7 +1508,7 @@ export default function App() {
         ))}
       </nav>
 
-      <main className={activePage === 'dialogs' || activePage === 'ai' ? 'page page-messenger' : 'page'}>
+      <main className={activePage === 'dialogs' || activePage === 'ai' ? 'page page-messenger' : activePage === 'diagrams' ? 'page page-diagrams' : 'page'}>
         {activePage === 'dialogs' ? (
           <div className="messenger">
             <div className="messenger-list">
@@ -3013,6 +3015,8 @@ export default function App() {
             </div>
           )}
         </section>
+        ) : activePage === 'diagrams' ? (
+          <DiagramPage />
         ) : activePage === 'settings' ? (
           <section>
             <h2>Настройки</h2>
