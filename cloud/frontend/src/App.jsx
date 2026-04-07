@@ -7,15 +7,14 @@ const ALL_PAGES = [
   { key: 'reports', label: 'Отчёты' },
   { key: 'documents', label: 'Документы' },
   { key: 'instructions', label: 'Инструкции' },
-  { key: 'ai', label: 'ИИ-ассистент' },
   { key: 'users', label: 'Пользователи' },
   { key: 'settings', label: 'Настройки' }
 ]
 
 const ROLE_PAGES = {
   SUPERADMIN: ALL_PAGES.map((p) => p.key),
-  ADMIN: ['clients', 'orders', 'dialogs', 'reports', 'documents', 'instructions', 'ai', 'users', 'settings'],
-  EMPLOYEE: ['clients', 'orders', 'dialogs', 'documents', 'instructions', 'ai'],
+  ADMIN: ['clients', 'orders', 'dialogs', 'reports', 'documents', 'instructions', 'users', 'settings'],
+  EMPLOYEE: ['clients', 'orders', 'dialogs', 'documents', 'instructions'],
   OPERATOR: ['instructions']
 }
 

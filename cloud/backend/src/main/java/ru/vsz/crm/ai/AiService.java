@@ -4,15 +4,20 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientResponseException;
 import ru.vsz.crm.vk.api.dto.VkMessageResponse;
 
 @Service
 public class AiService {
+
+    private static final Logger log = LoggerFactory.getLogger(AiService.class);
 
     private static final String DEFAULT_ANALYZE =
             "Ты опытный менеджер по продажам Вологодского судостроительного завода (ВСЗ).\n\n" +
@@ -86,15 +91,25 @@ public class AiService {
                 "messages", List.of(
                         Map.of("role", "user", "content", prompt)));
 
-        var resp = restClient.post()
-                .uri(baseUrl + "/chat/completions")
-                .header("Authorization", "Bearer " + apiToken)
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(body)
-                .retrieve()
-                .body(CompletionResponse.class);
+        CompletionResponse resp;
+        try {
+            resp = restClient.post()
+                    .uri(baseUrl + "/chat/completions")
+                    .header("Authorization", "Bearer " + apiToken)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(body)
+                    .retrieve()
+                    .body(CompletionResponse.class);
+        } catch (RestClientResponseException e) {
+            log.error("Timeweb AI вернул ошибку [analyzeClient]: HTTP {} — {}", e.getStatusCode(), e.getResponseBodyAsString());
+            throw new AiNotConfiguredException("Ошибка AI: " + e.getStatusCode() + " — " + e.getResponseBodyAsString());
+        } catch (Exception e) {
+            log.error("Ошибка при обращении к Timeweb AI [analyzeClient]", e);
+            throw new AiNotConfiguredException("Ошибка AI: " + e.getMessage());
+        }
 
         if (resp == null || resp.choices() == null || resp.choices().isEmpty()) {
+            log.error("Timeweb AI вернул пустой ответ [analyzeClient]");
             throw new AiNotConfiguredException("Пустой ответ от AI");
         }
         return resp.choices().get(0).message().content();
@@ -118,15 +133,25 @@ public record ChatMessage(String role, String content) {}
             messages.add(Map.of("role", msg.role(), "content", msg.content()));
         }
 
-        var resp = restClient.post()
-                .uri(baseUrl + "/chat/completions")
-                .header("Authorization", "Bearer " + apiToken)
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(Map.of("messages", messages))
-                .retrieve()
-                .body(CompletionResponse.class);
+        CompletionResponse resp;
+        try {
+            resp = restClient.post()
+                    .uri(baseUrl + "/chat/completions")
+                    .header("Authorization", "Bearer " + apiToken)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(Map.of("messages", messages))
+                    .retrieve()
+                    .body(CompletionResponse.class);
+        } catch (RestClientResponseException e) {
+            log.error("Timeweb AI вернул ошибку [chat]: HTTP {} — {}", e.getStatusCode(), e.getResponseBodyAsString());
+            throw new AiNotConfiguredException("Ошибка AI: " + e.getStatusCode() + " — " + e.getResponseBodyAsString());
+        } catch (Exception e) {
+            log.error("Ошибка при обращении к Timeweb AI [chat]", e);
+            throw new AiNotConfiguredException("Ошибка AI: " + e.getMessage());
+        }
 
         if (resp == null || resp.choices() == null || resp.choices().isEmpty()) {
+            log.error("Timeweb AI вернул пустой ответ [chat]");
             throw new AiNotConfiguredException("Пустой ответ от AI");
         }
         return resp.choices().get(0).message().content();
