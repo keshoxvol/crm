@@ -2,7 +2,7 @@ import { useState, useCallback, useRef, useEffect } from 'react'
 import {
   ReactFlow, addEdge, useNodesState, useEdgesState,
   Controls, Background, MiniMap, ReactFlowProvider,
-  Handle, Position, MarkerType, useReactFlow,
+  Handle, Position, MarkerType, useReactFlow, NodeResizer,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 
@@ -21,6 +21,7 @@ function makeNode(type, pos, label) {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     type: 'rfNode',
     position: pos,
+    style: { width: 140, height: 38 },
     data: { label: label ?? t.label, nodeType: type, bg: t.bg, color: t.color, border: t.border, radius: t.radius, dashed: t.dashed },
   }
 }
@@ -39,15 +40,31 @@ function RfNode({ data, selected }) {
       color: data.color,
       padding: '8px 16px',
       minWidth: 110,
+      minHeight: 38,
+      width: '100%',
+      height: '100%',
       textAlign: 'center',
       fontSize: 13,
       fontWeight: 500,
       userSelect: 'none',
       boxShadow: selected ? '0 0 0 2px rgba(79,142,247,0.25)' : 'none',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      wordBreak: 'break-word',
+      whiteSpace: 'pre-wrap',
+      boxSizing: 'border-box',
     }}>
+      <NodeResizer
+        isVisible={selected}
+        minWidth={80}
+        minHeight={32}
+        lineStyle={{ borderColor: '#4f8ef7' }}
+        handleStyle={{ background: '#4f8ef7', width: 8, height: 8, borderRadius: 2 }}
+      />
       <Handle type="target" position={Position.Top}   style={{ background: '#4f8ef7', width: 8, height: 8 }} />
       <Handle type="target" position={Position.Left}  id="l" style={{ background: '#4f8ef7', width: 8, height: 8 }} />
-      <div>{data.label}</div>
+      <div style={{ width: '100%' }}>{data.label}</div>
       <Handle type="source" position={Position.Bottom} style={{ background: '#4f8ef7', width: 8, height: 8 }} />
       <Handle type="source" position={Position.Right}  id="r" style={{ background: '#4f8ef7', width: 8, height: 8 }} />
     </div>
