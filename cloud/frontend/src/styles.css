@@ -1414,3 +1414,40 @@ td {
   font-size: 13px;
   outline: none;
 }
+
+/* Shared button variants */
+.btn-primary {
+  background: var(--color-accent);
+  color: #1b1208;
+  border: 1px solid var(--color-accent-dim);
+  border-radius: 7px;
+  padding: 7px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.btn-primary:hover { background: var(--color-accent-dim); }
+.btn-secondary {
+  background: var(--color-bg-surface);
+  color: var(--color-text-sub);
+  border: 1px solid var(--color-border);
+  border-radius: 7px;
+  padding: 7px 14px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.btn-secondary:hover { background: var(--color-bg-base); color: var(--color-text); }
+.btn-danger {
+  background: #2a0d0d;
+  color: #e86060;
+  border: 1px solid #521a1a;
+  border-radius: 7px;
+  padding: 7px 14px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.btn-danger:hover { background: #3a1010; color: #f07070; }
+.diagram-delete-btn { width: 100%; margin-top: 8px; }

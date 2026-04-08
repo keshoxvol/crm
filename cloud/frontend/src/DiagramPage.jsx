@@ -87,6 +87,23 @@ function DiagramEditor({ authFetch }) {
   const [showAddMenu, setShowAddMenu] = useState(false)
   const [savedAt,     setSavedAt]     = useState(null)
   const [saveError,   setSaveError]   = useState(false)
+  const [fullscreen,  setFullscreen]  = useState(false)
+
+  const pageRef = useRef(null)
+
+  function toggleFullscreen() {
+    if (!fullscreen) {
+      pageRef.current?.requestFullscreen?.()
+    } else {
+      document.exitFullscreen?.()
+    }
+  }
+
+  useEffect(() => {
+    function onFsChange() { setFullscreen(!!document.fullscreenElement) }
+    document.addEventListener('fullscreenchange', onFsChange)
+    return () => document.removeEventListener('fullscreenchange', onFsChange)
+  }, [])
 
   // History
   const history  = useRef([])
@@ -235,6 +252,17 @@ function DiagramEditor({ authFetch }) {
     setEdges(es => es.map(e => e.id === id ? { ...e, [key]: value } : e))
   }
 
+  function deleteSelectedNode() {
+    const id = selNodes[0]?.id; if (!id) return
+    setNodes(ns => { const next = ns.filter(n => n.id !== id); pushHistory(next, edgesRef.current); return next })
+    setEdges(es => { const next = es.filter(e => e.source !== id && e.target !== id); edgesRef.current = next; return next })
+  }
+
+  function deleteSelectedEdge() {
+    const id = selEdges[0]?.id; if (!id) return
+    setEdges(es => { const next = es.filter(e => e.id !== id); pushHistory(nodesRef.current, next); return next })
+  }
+
   function switchDiagram(d) {
     if (d.id === activeId) return
     setDiagrams(prev => prev.map(x => x.id === activeId ? { ...x, nodes: nodesRef.current, edges: edgesRef.current } : x))
@@ -321,7 +349,7 @@ function DiagramEditor({ authFetch }) {
   }
 
   return (
-    <div className="diagram-page" onClick={() => setShowAddMenu(false)}>
+    <div className="diagram-page" ref={pageRef} onClick={() => setShowAddMenu(false)}>
 
       {/* ── Canvas ── */}
       <div className="diagram-canvas">
@@ -340,10 +368,9 @@ function DiagramEditor({ authFetch }) {
           </div>
           <button className="diagram-toolbar-icon-btn" onClick={() => applyHistory(histIdx.current - 1)} disabled={!canUndo} title="Ctrl+Z">↩ Отменить</button>
           <button className="diagram-toolbar-icon-btn" onClick={() => applyHistory(histIdx.current + 1)} disabled={!canRedo} title="Ctrl+Y">↪ Повторить</button>
-          <button className="diagram-toolbar-icon-btn" onClick={exportJSON}>⬇ JSON</button>
-          <label className="diagram-toolbar-icon-btn" style={{ cursor: 'pointer' }}>
-            ⬆ JSON <input type="file" accept=".json" style={{ display: 'none' }} onChange={importJSON} />
-          </label>
+          <button className="diagram-toolbar-icon-btn" onClick={toggleFullscreen} title={fullscreen ? 'Выйти из полного экрана' : 'На весь экран'}>
+            {fullscreen ? '⊡ Свернуть' : '⊞ На весь экран'}
+          </button>
           {saveError
             ? <span className="diagram-saved-hint" style={{ color: '#e86060' }}>Ошибка сохранения</span>
             : savedAt && <span className="diagram-saved-hint">Сохранено {savedAt.toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' })}</span>
@@ -426,6 +453,7 @@ function DiagramEditor({ authFetch }) {
               <input type="checkbox" checked={selNode.data.dashed || false} onChange={e => setNodeProp('dashed', e.target.checked)} />
               Пунктирная рамка
             </label>
+            <button className="btn-danger diagram-delete-btn" onClick={deleteSelectedNode}>Удалить узел</button>
           </div>
         ) : selEdge ? (
           <div className="diagram-props">
@@ -443,6 +471,7 @@ function DiagramEditor({ authFetch }) {
               <input type="checkbox" checked={selEdge.animated || false} onChange={e => setEdgeProp('animated', e.target.checked)} />
               Анимация
             </label>
+            <button className="btn-danger diagram-delete-btn" onClick={deleteSelectedEdge}>Удалить связь</button>
           </div>
         ) : (
           <div className="diagram-props-hint">Выберите узел или связь для настройки свойств</div>
