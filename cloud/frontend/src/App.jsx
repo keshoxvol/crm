@@ -3016,7 +3016,7 @@ export default function App() {
           )}
         </section>
         ) : activePage === 'diagrams' ? (
-          <DiagramPage />
+          <DiagramPage authFetch={authFetch} />
         ) : activePage === 'settings' ? (
           <section>
             <h2>Настройки</h2>
